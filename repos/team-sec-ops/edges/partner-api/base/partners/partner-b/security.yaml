@@ -1,0 +1,20 @@
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: partner-b
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: partner-b
+  apiKeyAuth:
+    credentialRefs:
+      - group: ""
+        kind: Secret
+        name: partner-b-keys
+    extractFrom:
+      - headers:
+          - x-api-key
+    forwardClientIDHeader: x-partner-id
+    sanitize: true

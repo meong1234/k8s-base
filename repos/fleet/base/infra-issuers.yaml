@@ -1,0 +1,26 @@
+---
+# The ClusterIssuer is a cert-manager custom resource whose CRD arrives with the
+# chart in infra-ks; a shared Kustomization would dry-run it before the CRD
+# exists and deadlock.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infra-config-ks
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: infra-ks
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  path: ./clusters/${CLUSTER_ENV}/issuers
+  prune: true
+  wait: true
+  serviceAccountName: kustomize-controller
+  sourceRef:
+    kind: ${SOURCE_KIND:=OCIRepository}
+    name: infra-source
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-vars

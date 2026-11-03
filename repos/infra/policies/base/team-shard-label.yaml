@@ -1,0 +1,51 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: team-shard-label
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [kustomize.toolkit.fluxcd.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [kustomizations]
+      - apiGroups: [helm.toolkit.fluxcd.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [helmreleases]
+      - apiGroups: [source.toolkit.fluxcd.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [ocirepositories, helmrepositories, gitrepositories, helmcharts, buckets]
+  variables:
+    - name: expected
+      expression: >-
+        (has(namespaceObject.metadata.labels) && 'platform.k8s-base/shard' in namespaceObject.metadata.labels)
+          ? namespaceObject.metadata.labels['platform.k8s-base/shard'] : ''
+    - name: shard
+      expression: >-
+        (has(object.metadata.labels) && 'sharding.fluxcd.io/key' in object.metadata.labels)
+          ? object.metadata.labels['sharding.fluxcd.io/key'] : ''
+  validations:
+    - expression: "variables.expected == '' || variables.shard == variables.expected"
+      message: "Flux objects in a team namespace must carry sharding.fluxcd.io/key equal to the namespace's platform.k8s-base/shard label"
+      messageExpression: >-
+        request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
+        ' must carry label sharding.fluxcd.io/key=' + variables.expected +
+        ' but has ' + (variables.shard == '' ? 'no shard label' : '"' + variables.shard + '"') +
+        '; an unsharded or wrongly sharded object is picked up by the wrong reconciler'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: team-shard-label
+spec:
+  policyName: team-shard-label
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: platform.k8s-base/team
+          operator: Exists

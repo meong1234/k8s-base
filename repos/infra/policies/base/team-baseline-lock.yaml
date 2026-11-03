@@ -1,0 +1,50 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: team-baseline-lock
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [networking.k8s.io]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [networkpolicies]
+  variables:
+    - name: target
+      expression: "object == null ? oldObject : object"
+    - name: name
+      expression: "variables.target == null ? '' : variables.target.metadata.name"
+    - name: writers
+      expression: "params.data['platformWriters'].split(',')"
+    - name: isPlatform
+      expression: "request.userInfo.username in variables.writers"
+  validations:
+    - expression: "!variables.name.startsWith('team-baseline') || variables.isPlatform"
+      message: "team-baseline-* NetworkPolicy objects are platform-owned"
+      messageExpression: >-
+        'team-baseline-* objects are platform-owned: ' + request.userInfo.username +
+        ' may not ' + request.operation + ' ' + request.resource.resource + '/' + variables.name +
+        ' in namespace ' + request.namespace +
+        '. Only ' + params.data['platformWriters'] + ' may write them'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: team-baseline-lock
+spec:
+  policyName: team-baseline-lock
+  validationActions: [Deny]
+  paramRef:
+    name: platform-policy-params
+    namespace: flux-system
+    parameterNotFoundAction: Deny
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: platform.k8s-base/team
+          operator: Exists

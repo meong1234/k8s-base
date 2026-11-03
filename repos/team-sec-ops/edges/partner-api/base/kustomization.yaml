@@ -1,0 +1,6 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Deliberately empty: the roster in envs/<env>/kustomization.yaml is the only
+# list of live partners. partners/<partner>/ declares that a partner exists;
+# an envs/<env> resources: line declares that it is live there.
+resources: []

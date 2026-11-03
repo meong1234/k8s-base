@@ -1,0 +1,37 @@
+---
+# Kubelet health probes arrive carrying `reserved:world` rather than
+# `reserved:host`, so Cilium's automatic allow-localhost exemption never matches
+# and every pod in a default-deny namespace crash-loops on its own liveness
+# probe. The network README has the evidence and the blast radius of `world`.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: platform-host-probes
+spec:
+  endpointSelector: {}
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    - fromEntities:
+        - host
+        - remote-node
+        - world
+---
+# Ambient rewrites a kubelet probe's source address to this link-local address
+# before it reaches the pod, so the probe no longer carries the node identity
+# that platform-host-probes allows. Istio documents the CIDR; declaring it
+# here also pins a CIDR identity for it, which `fromEntities: world` would
+# otherwise have to cover.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: allow-ambient-hostprobes
+spec:
+  endpointSelector: {}
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  ingress:
+    - fromCIDR:
+        - 169.254.7.127/32

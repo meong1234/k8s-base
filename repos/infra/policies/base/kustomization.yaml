@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - params.yaml
+  - exposure-params.yaml
+  - team-shard-label.yaml
+  - team-service-account.yaml
+  - team-baseline-lock.yaml
+  - team-namespace-labels.yaml
+  - allowed-registries.yaml
+  - team-no-direct-exposure.yaml
+  - public-route-owner.yaml
+  - api-path-owner.yaml
+  - access-request-create.yaml
+  - access-request-approve.yaml
+  - jit-binding-lock.yaml
+  - privileged-access-guard.yaml
+  - gitops-only.yaml

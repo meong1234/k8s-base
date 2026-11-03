@@ -1,0 +1,12 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: istio
+  namespace: flux-system
+spec:
+  interval: 2h
+  # From 1.31 Istio publishes neither charts nor images to
+  # istio-release.storage.googleapis.com, gcr.io/istio-release or
+  # registry.istio.io; blob.istio.io and Docker Hub replace them.
+  url: https://blob.istio.io/istio-release/charts

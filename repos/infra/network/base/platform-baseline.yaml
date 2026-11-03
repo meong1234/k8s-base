@@ -1,0 +1,48 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: platform-dns-allow
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: "io.kubernetes.pod.namespace"
+        operator: "NotIn"
+        values: [kube-system]
+      - key: "k8s-app"
+        operator: "NotIn"
+        values: [kube-dns]
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            "io.kubernetes.pod.namespace": kube-system
+            "k8s-app": kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: teams-deny-platform
+spec:
+  # A waypoint is a pod in the team's own namespace but it is platform
+  # infrastructure: it has to reach istiod on 15012 for its certificate and its
+  # xDS. Cilium deny beats allow with no ordering, so the exemption has to be in
+  # the selector — no allow rule anywhere could reopen it.
+  endpointSelector:
+    matchExpressions:
+      - key: "io.cilium.k8s.namespace.labels.platform.k8s-base/team"
+        operator: "Exists"
+      - key: "gateway.networking.k8s.io/gateway-name"
+        operator: "DoesNotExist"
+  egressDeny:
+    - toEndpoints:
+        - matchExpressions:
+            - key: "io.kubernetes.pod.namespace"
+              operator: "In"
+              values: [flux-system, istio-system]

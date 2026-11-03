@@ -1,0 +1,28 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: partner-host-on-public
+  namespace: public-api
+  labels:
+    platform.k8s-base/owner-team: team-b
+    platform.k8s-base/auth: none
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: public
+      namespace: platform-ingress
+      sectionName: https
+  hostnames:
+    - partner-a.partners.__DOMAIN__
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /orders
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: podinfo
+          namespace: team-b-apps
+          port: 9898

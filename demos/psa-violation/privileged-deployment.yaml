@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: privileged-oops
+  namespace: team-a-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: privileged-oops
+  template:
+    metadata:
+      labels:
+        app: privileged-oops
+    spec:
+      hostPID: true
+      containers:
+        - name: oops
+          image: docker.io/library/busybox:1.37
+          command: ["sh", "-c", "sleep 3600"]
+          securityContext:
+            privileged: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi

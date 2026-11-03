@@ -1,0 +1,29 @@
+---
+# What `local` sets differently, and why each line is here rather than in base/:
+#
+#   image.tag     6.17.0 is the candidate under test. The laptop runs it one
+#                 release ahead of base so that an upgrade is exercised here
+#                 before the promotion PR moves base/ forward.
+#   resources     a single k3d node already carries Cilium, Istio (istiod, two
+#                 DaemonSets, three waypoints), three Envoy proxies, Dex, Flux's
+#                 17 controllers and four other teams. base/'s request is a
+#                 real-cluster figure; this one is what fits beside all of that.
+#
+# replicaCount is *not* here: base/ already says 1, and restating a value an
+# overlay agrees with is how the two drift apart unnoticed.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: podinfo
+  namespace: team-a-apps
+spec:
+  values:
+    image:
+      tag: 6.17.0
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi

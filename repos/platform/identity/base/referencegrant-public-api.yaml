@@ -1,0 +1,18 @@
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-public-api-to-dex
+  namespace: platform-identity
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: public-api
+    - group: gateway.envoyproxy.io
+      kind: SecurityPolicy
+      namespace: public-api
+  to:
+    - group: ""
+      kind: Service
+      name: dex

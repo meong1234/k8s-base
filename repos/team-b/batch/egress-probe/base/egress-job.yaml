@@ -1,0 +1,64 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: egress-probe
+  namespace: team-b-batch
+  labels:
+    app.kubernetes.io/name: egress-probe
+spec:
+  backoffLimit: 0
+  completions: 1
+  parallelism: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: egress-probe
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: scratch
+          emptyDir: {}
+      containers:
+        - name: probe
+          image: docker.io/curlimages/curl:8.11.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              probe() {
+                label=$1; shift
+                code=$(curl -sS -m 10 -o /tmp/body -w '%{http_code}' "$@" 2>/tmp/err) || code=000
+                printf 'probe %s=%s\n' "$label" "$code"
+                [ -s /tmp/err ]  && sed 's/^/    curl: /' /tmp/err
+                [ "$code" = 200 ] && head -c 200 /tmp/body | sed 's/^/    body: /'
+                printf '\n'
+                eval "r_$label=$code"
+              }
+              echo "egress probes from $(hostname) in team-b-batch"
+              echo ""
+              probe github    https://api.github.com/zen
+              probe example   https://example.com/
+              probe directip  --resolve example.com:443:93.184.215.14 https://example.com/
+              printf 'results github=%s example=%s direct-ip=%s\n' \
+                "$r_github" "$r_example" "$r_directip"
+              exit 0
+          volumeMounts:
+            - name: scratch
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

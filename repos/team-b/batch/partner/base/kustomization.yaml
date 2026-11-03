@@ -1,0 +1,6 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: team-b-batch
+resources:
+  - serviceaccount.yaml
+  - partner-job.yaml

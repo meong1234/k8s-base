@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mtls-probe
+  namespace: team-b-batch
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        # The podinfo image declares `USER app` by name, which the kubelet
+        # refuses under runAsNonRoot; uid 100 is that user.
+        runAsUser: 100
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: probe
+          image: ghcr.io/stefanprodan/podinfo:6.17.0
+          command:
+            - sh
+            - -c
+            - |
+              for i in 1 2 3 4 5 6; do
+                curl -m5 -s -o /dev/null -w "probe=%{http_code}\n" \
+                  http://podinfo.team-b-apps:9898/
+                sleep 1
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

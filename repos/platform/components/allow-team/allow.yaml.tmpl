@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-__CALLER_TEAM__-__SERVICE__
+  namespace: __OWNING_NAMESPACE__
+  labels:
+    platform.k8s-base/cross-team-access: allow-team
+    platform.k8s-base/caller-team: __CALLER_TEAM__
+    platform.k8s-base/service: __SERVICE__
+spec:
+  podSelector:
+    matchLabels:
+      __POD_SELECTOR_KEY__: __POD_SELECTOR_VALUE__
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: __CALLER_NAMESPACE__
+      ports:
+        - port: 15008
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-__CALLER_TEAM__-__SERVICE__
+  namespace: __OWNING_NAMESPACE__
+  labels:
+    platform.k8s-base/cross-team-access: allow-team
+    platform.k8s-base/caller-team: __CALLER_TEAM__
+    platform.k8s-base/service: __SERVICE__
+spec:
+  __TARGET__
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            __CALLER_SOURCE__
+      to:
+        - operation:
+            __OPERATION__

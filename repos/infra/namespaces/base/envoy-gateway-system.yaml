@@ -1,0 +1,13 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: envoy-gateway-system
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+    app.kubernetes.io/part-of: platform
+    platform.k8s-base/privileged-access: forbidden
+    istio.io/dataplane-mode: ambient
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled

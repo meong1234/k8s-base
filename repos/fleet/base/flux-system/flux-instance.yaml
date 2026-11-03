@@ -1,0 +1,34 @@
+---
+apiVersion: fluxcd.controlplane.io/v1
+kind: FluxInstance
+metadata:
+  name: flux
+  namespace: flux-system
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 1h
+    fluxcd.controlplane.io/reconcileTimeout: 5m
+spec:
+  distribution:
+    version: "2.10.x"
+    registry: ghcr.io/fluxcd
+  components:
+    - source-controller
+    - kustomize-controller
+    - helm-controller
+    - notification-controller
+  cluster:
+    type: kubernetes
+    domain: cluster.local
+    multitenant: true
+    tenantDefaultServiceAccount: default
+    # `true` ships a default-deny NetworkPolicy into flux-system, and kubelet
+    # probes on this cluster arrive as `reserved:world` (see the
+    # platform-host-probes CCNP), so all 17 controllers - flux-operator included
+    # - crash-loop on their own probes and nothing is left to reconcile the fix.
+    networkPolicy: false
+  sharding:
+    key: sharding.fluxcd.io/key
+    shards:
+      - shard-1
+      - shard-2
+    storage: ephemeral

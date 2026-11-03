@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: public-api
+labels:
+  - includeSelectors: false
+    pairs:
+      platform.k8s-base/public-route: "true"
+resources:
+  - routes/https-redirect.yaml
+  - routes/team-a-podinfo.yaml
+  - routes/team-a-catalog.yaml
+  - routes/team-b-orders.yaml
+  - routes/platform-dex.yaml
+  - policies/ratelimit.yaml
+  - policies/security-none.yaml
+  - policies/security-jwt.yaml

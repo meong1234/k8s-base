@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-exposure-params
+  namespace: flux-system
+  labels:
+    platform.k8s-base/component: policies
+data:
+  dnsZone: "${CLUSTER_DOMAIN}"
+
+  ingressNamespace: "platform-ingress"
+
+  waypointGatewayName: "waypoint"
+
+  waypointGatewayClass: "istio-waypoint"
+
+  forbiddenServiceTypes: "LoadBalancer,NodePort"
+
+  publicBackendNamespaces: "platform-identity"
+
+  reservedNamespacePrefixes: "platform-,flux-,kube-,istio-,cert-manager,envoy-gateway-,default"

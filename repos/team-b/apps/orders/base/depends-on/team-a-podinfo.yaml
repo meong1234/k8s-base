@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: depends-on-team-a-podinfo
+  namespace: team-b-apps
+  labels:
+    platform.k8s-base/cross-team-access: depends-on-service
+    platform.k8s-base/owning-team: team-a
+    platform.k8s-base/service: podinfo
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: team-a-apps
+      ports:
+        - port: 15008

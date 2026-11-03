@@ -1,0 +1,33 @@
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: hubble-ui-oidc
+  namespace: platform-identity
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: hubble-ui
+  oidc:
+    provider:
+      # The issuer and the authorization endpoint are browser-facing strings and
+      # resolve only on the laptop. Naming both endpoints explicitly is what
+      # stops Envoy Gateway's control plane from trying to fetch the discovery
+      # document itself, which it cannot resolve; backendRefs is the in-cluster
+      # path the proxy uses for the token exchange.
+      issuer: https://dex.${CLUSTER_DOMAIN}:${PUBLIC_PORT}
+      authorizationEndpoint: https://dex.${CLUSTER_DOMAIN}:${PUBLIC_PORT}/auth
+      tokenEndpoint: https://dex.${CLUSTER_DOMAIN}:${PUBLIC_PORT}/token
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: dex
+          port: 5556
+    clientID: kubernetes
+    clientSecret:
+      name: dex-client
+    scopes: [openid, profile, email, groups]
+    redirectURL: https://hubble.internal.${CLUSTER_DOMAIN}:${INTERNAL_PORT}/oauth2/callback
+    logoutPath: /logout
+    forwardAccessToken: false

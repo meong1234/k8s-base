@@ -1,0 +1,4 @@
+What: a Job `mtls-probe` in `team-b-batch` that curls `podinfo.team-b-apps:9898` six times — a same-team call across two namespaces, and in practice across two nodes.
+Attached to: team `team-b` (artifact `team-b-mtls-probe:demo`, signed with team-b's cosign key, demo-mtls).
+Expected: six `probe=200` lines, and every packet Cilium sees addressed to port **15008**, never to 9898. ztunnel logs the connection with `src.identity=spiffe://cluster.local/ns/team-b-batch/sa/default`, `dst.identity=spiffe://cluster.local/ns/team-b-apps/sa/default` and `dst.hbone_addr=<pod ip>:9898` — the application port exists only inside the HBONE tunnel.
+Why a Job and not `kubectl exec`: the two ends have to be two different pods in two different namespaces for the flow to leave the pod at all, and `team-b` is the only team with two workload namespaces. Shipped as a signed artifact so the probe arrives the same way any other workload does.

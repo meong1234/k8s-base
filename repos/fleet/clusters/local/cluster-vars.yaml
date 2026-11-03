@@ -1,0 +1,41 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-vars
+  namespace: flux-system
+  labels:
+    platform.k8s-base/component: fleet
+data:
+  CLUSTER_ENV: local
+  CLUSTER_TIER: dev
+  CLUSTER_DOMAIN: local-dev.test
+  PUBLIC_PORT: "8443"
+  INTERNAL_PORT: "8444"
+  # Every reference to a key below is written ${KEY:=<the literal it replaced>}.
+  # The default is never a preference, always the previous behaviour: this
+  # ConfigMap is itself artifact content, and postBuild substitutes a whole
+  # build before applying any of it, so a revision that both adds a key and
+  # uses it would fail to substitute, never apply, and never deliver the key -
+  # a deadlock no reconcile can clear. With a default, that revision applies,
+  # the key lands, and the next pass honours it. env-check 3 still requires
+  # every key to be declared here, so no environment inherits a default.
+  #
+  # Every environment pulls OCI artifacts: the cluster then holds registry read
+  # credentials rather than git credentials, an artifact cannot change under a
+  # force-push, and promotion is a retag of a signed digest. A git source is
+  # still reachable from here - set this to GitRepository and give
+  # clusters/<env>/sources.yaml objects of that kind - because base refers to a
+  # source by name and kind and never by shape.
+  SOURCE_KIND: OCIRepository
+
+  OCI_REGISTRY: k3d-local-dev-registry:5000
+  OCI_TAG: local
+  # The two trust fields of a team's own source. The platform sources carry
+  # theirs literally in clusters/<env>/sources.yaml; a team's is stamped from
+  # base/teams.yaml, so it has to arrive as a value.
+  OCI_INSECURE: "true"
+  OCI_PROVIDER: generic
+  ALLOWED_REGISTRIES: "ghcr.io/,docker.io/,registry.k8s.io/,quay.io/,k3d-local-dev-registry:5000/"
+  BOOTSTRAP_WRITERS: "system:admin"
+  CERT_ISSUER: local-ca

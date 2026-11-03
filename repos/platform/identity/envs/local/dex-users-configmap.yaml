@@ -1,0 +1,41 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dex-users
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: platform
+  annotations:
+    platform.k8s-base/generated-from: repos/fleet/clusters/local/identity/users.yaml
+    # A bcrypt hash is `$2y$10$<salt><digest>`, and Flux's post-build
+    # substitution would read every `$<word>` in it as a variable and blank it.
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+data:
+  values.yaml: |
+    config:
+      staticPasswords:
+        - email: alice@team-a.local
+          username: alice
+          userID: alice-team-a
+          hash: "$2y$10$CM4kdNF97CfZgKsrhJBibuMLOgvIwT5loWPfMUW6at0nLuCYthmr2"
+        - email: bob@team-a.local
+          username: bob
+          userID: bob-team-a
+          hash: "$2y$10$onX/7mlOQ7cXS7WGY3hS3en5IiKcbm00rLgAq4mZ72MF4qXxLCyxy"
+        - email: carol@team-b.local
+          username: carol
+          userID: carol-team-b
+          hash: "$2y$10$739bmhoEWGufknAayYWaBe9nn.YD/evFgZskK0hecp6c5AT1FGFli"
+        - email: viewer@company.local
+          username: viewer
+          userID: viewer-company
+          hash: "$2y$10$A77M5.1xGODZXliBui0QnuUCktC3Q62v/xr6nEsxClxKyvI5yuiPO"
+        - email: ops@platform.local
+          username: ops
+          userID: ops-platform
+          hash: "$2y$10$Un2Kt4248ObtOnUxk6eXrO26s1EttzQb1NA90q6RZjQNob1v0.d2a"
+        - email: ops2@platform.local
+          username: ops2
+          userID: ops2-platform
+          hash: "$2y$10$I2Ilk6FBjGgdNKfRrVIWeOAIeLl.Dq8lO0.DG8ciVzYKKyuu1kKQu"

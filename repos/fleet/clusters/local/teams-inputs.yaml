@@ -1,0 +1,33 @@
+---
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: teams
+  namespace: flux-system
+spec:
+  inputs:
+    - team: team-a
+      shard: shard-1
+      namespaces: [apps]
+      waypoint: true
+      apiPaths: [podinfo, catalog]
+    - team: team-b
+      shard: shard-1
+      namespaces: [apps, batch]
+      apiPaths: [orders]
+    - team: team-c
+      shard: shard-2
+      namespaces: [apps]
+    - team: team-d
+      shard: shard-2
+      namespaces: [analytics]
+      psa: restricted
+      privilegedAccess: forbidden
+    - team: team-sec-ops
+      shard: shard-2
+      namespaces: [public-api, partner-api, egress-allowlist]
+      namespacePrefix: ""
+      roles:
+        public-api: public-edge
+        partner-api: partner-edge
+        egress-allowlist: egress-allowlist

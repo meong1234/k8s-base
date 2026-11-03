@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-egress
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    app.kubernetes.io/part-of: platform
+    platform.k8s-base/privileged-access: forbidden
+    platform.k8s-base/role: egress-waypoint
+    istio.io/dataplane-mode: ambient
+    istio.io/use-waypoint: egress-waypoint
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted

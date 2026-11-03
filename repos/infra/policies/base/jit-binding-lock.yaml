@@ -1,0 +1,80 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: jit-binding-lock
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [rbac.authorization.k8s.io]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [rolebindings, clusterrolebindings]
+  variables:
+    - name: target
+      expression: "object == null ? oldObject : object"
+    - name: name
+      expression: "variables.target == null ? '' : variables.target.metadata.name"
+    - name: roleRef
+      expression: "variables.target == null ? '' : variables.target.roleRef.name"
+    - name: jitRoles
+      expression: "params.data['jitRoles'].split(',')"
+    - name: isJitRole
+      expression: "variables.jitRoles.exists(r, r == variables.roleRef)"
+    - name: isJitName
+      expression: "variables.name.startsWith('jit-')"
+    - name: warden
+      expression: "params.data['wardenServiceAccount']"
+    - name: writers
+      expression: >-
+        params.data['platformWriters'].split(',') + params.data['bootstrapWriters'].split(',') +
+        [variables.warden]
+    - name: isWriter
+      expression: "request.userInfo.username in variables.writers"
+    - name: isWarden
+      expression: "request.userInfo.username == variables.warden"
+    - name: requestUID
+      expression: >-
+        (variables.target != null && has(variables.target.metadata.annotations) &&
+         'access.k8s-base/request-uid' in variables.target.metadata.annotations)
+          ? variables.target.metadata.annotations['access.k8s-base/request-uid'] : ''
+  validations:
+    - expression: "!variables.isJitRole || variables.isWriter"
+      message: "bindings to the just-in-time ClusterRoles are the access warden's to write"
+      messageExpression: >-
+        request.userInfo.username + ' may not ' + request.operation + ' ' +
+        request.resource.resource + '/' + variables.name + ' bound to ClusterRole/' +
+        variables.roleRef + '; ' + params.data['jitRoles'] + ' are granted ' +
+        'only through an approved AccessRequest reconciled by ' + variables.warden
+      reason: Forbidden
+    - expression: >-
+        !variables.isWarden || (variables.isJitName && variables.requestUID != '')
+      message: "every binding the access warden writes must be named jit-<request> and carry access.k8s-base/request-uid"
+      messageExpression: >-
+        variables.warden + ' may only write bindings named jit-<request> that carry annotation ' +
+        'access.k8s-base/request-uid, so that every grant traces back to an approved AccessRequest ' +
+        'and is swept when the window closes -- got ' + request.resource.resource + '/' +
+        variables.name + (variables.requestUID == '' ? ' with no request-uid' : '')
+      reason: Forbidden
+    - expression: "!variables.isJitName || variables.isWriter"
+      message: "the jit-* binding name space is reserved for the access warden"
+      messageExpression: >-
+        request.userInfo.username + ' may not ' + request.operation + ' ' +
+        request.resource.resource + '/' + variables.name +
+        ': names starting with jit- are reserved for bindings the access warden owns'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: jit-binding-lock
+spec:
+  policyName: jit-binding-lock
+  validationActions: [Deny, Audit]
+  paramRef:
+    name: platform-policy-params
+    namespace: flux-system
+    parameterNotFoundAction: Deny

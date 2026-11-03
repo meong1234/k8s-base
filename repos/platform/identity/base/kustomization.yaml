@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - helm-repository.yaml
+  - helmrelease.yaml
+  - referencegrant-public-api.yaml
+  - httproute-hubble-ui.yaml
+  - securitypolicy-hubble-oidc.yaml

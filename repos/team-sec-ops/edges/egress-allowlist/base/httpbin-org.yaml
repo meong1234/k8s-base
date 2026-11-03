@@ -1,0 +1,50 @@
+---
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: httpbin-org
+  namespace: egress-allowlist
+  labels:
+    istio.io/use-waypoint: egress-waypoint
+    istio.io/use-waypoint-namespace: platform-egress
+spec:
+  hosts:
+    - httpbin.org
+  location: MESH_EXTERNAL
+  ports:
+    - number: 443
+      name: https
+      protocol: TLS
+    - number: 80
+      name: http
+      protocol: HTTP
+  resolution: DNS
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: httpbin-org
+  namespace: egress-allowlist
+spec:
+  targetRefs:
+    - group: networking.istio.io
+      kind: ServiceEntry
+      name: httpbin-org
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            namespaces:
+              - team-a-apps
+      to:
+        - operation:
+            ports: ["443"]
+    - from:
+        - source:
+            namespaces:
+              - team-a-apps
+      to:
+        - operation:
+            ports: ["80"]
+            methods: ["GET"]
+            paths: ["/get", "/status/*"]

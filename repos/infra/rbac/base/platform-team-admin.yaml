@@ -1,0 +1,39 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform-team-admin
+  labels:
+    platform.k8s-base/tier: team-admin
+    platform.k8s-base/standing-binding: forbidden
+aggregationRule:
+  clusterRoleSelectors:
+    - matchLabels:
+        rbac.authorization.k8s.io/aggregate-to-view: "true"
+    - matchLabels:
+        rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    - matchLabels:
+        platform.k8s-base/aggregate-to-platform-team-admin: "true"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform-team-admin-rules
+  labels:
+    platform.k8s-base/aggregate-to-platform-team-admin: "true"
+rules:
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes, grpcroutes, tlsroutes, tcproutes, referencegrants]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [security.istio.io]
+    resources: [authorizationpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [access.k8s-base.io]
+    resources: [accessrequests/status]
+    verbs: [get, update, patch]

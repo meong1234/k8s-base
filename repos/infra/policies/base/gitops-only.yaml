@@ -1,0 +1,65 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: gitops-only
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [apps]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [deployments, statefulsets, daemonsets, replicasets]
+      - apiGroups: [batch]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [jobs, cronjobs]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [pods, services, configmaps, secrets, serviceaccounts]
+      - apiGroups: [networking.k8s.io]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [networkpolicies]
+      - apiGroups: [gateway.networking.k8s.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [httproutes]
+      - apiGroups: [security.istio.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [authorizationpolicies]
+  variables:
+    - name: user
+      expression: "request.userInfo.username"
+    - name: isController
+      expression: >-
+        variables.user.startsWith('system:serviceaccount:') || variables.user.startsWith('system:node:')
+    - name: name
+      expression: >-
+        object == null
+          ? (oldObject == null ? '<unknown>' : oldObject.metadata.name)
+          : object.metadata.name
+  validations:
+    - expression: "variables.isController"
+      message: "workload objects in a team namespace come from git, not from a terminal"
+      messageExpression: >-
+        variables.user + ' may not ' + request.operation + ' ' + request.resource.resource + '/' +
+        variables.name + ' in ' + request.namespace +
+        ' by hand: workload objects in a team namespace arrive only through a signed artifact ' +
+        'applied by that team Flux ServiceAccount. Commit it and run `make push REPO=<team>`'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: gitops-only-warn
+spec:
+  policyName: gitops-only
+  validationActions: [Warn, Audit]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: platform.k8s-base/team
+          operator: Exists

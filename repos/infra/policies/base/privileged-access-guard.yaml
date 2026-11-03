@@ -1,0 +1,82 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: privileged-access-guard
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: [CONNECT]
+        resources: ["pods/exec", "pods/attach", "pods/portforward"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: [UPDATE]
+        resources: ["pods/ephemeralcontainers"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: [CREATE]
+        resources: ["serviceaccounts/token"]
+  variables:
+    - name: sub
+      expression: "has(request.subResource) ? request.subResource : ''"
+    - name: privileged
+      expression: >-
+        (namespaceObject != null && has(namespaceObject.metadata.labels) &&
+         'platform.k8s-base/privileged-access' in namespaceObject.metadata.labels)
+          ? namespaceObject.metadata.labels['platform.k8s-base/privileged-access'] : ''
+    - name: team
+      expression: >-
+        (namespaceObject != null && has(namespaceObject.metadata.labels) &&
+         'platform.k8s-base/team' in namespaceObject.metadata.labels)
+          ? namespaceObject.metadata.labels['platform.k8s-base/team'] : ''
+    - name: isBootstrap
+      expression: "request.userInfo.username in params.data['bootstrapWriters'].split(',')"
+    - name: isHuman
+      expression: "!request.userInfo.username.startsWith('system:')"
+    - name: debugImages
+      expression: "params.data['debugImages'].split(',')"
+  validations:
+    - expression: >-
+        variables.privileged != 'forbidden' || variables.isBootstrap ||
+        !(variables.sub in ['exec', 'attach', 'portforward', 'ephemeralcontainers'])
+      message: "this namespace is exec-free: no identity may open a session into its pods"
+      messageExpression: >-
+        'namespace ' + request.namespace + ' is labelled platform.k8s-base/privileged-access=forbidden, so ' +
+        request.userInfo.username + ' may not ' + variables.sub + ' into pod ' + request.name +
+        ' even with an approved AccessRequest; read its logs and events instead'
+      reason: Forbidden
+    - expression: >-
+        variables.sub != 'ephemeralcontainers' || variables.isBootstrap ||
+        !has(object.spec) || !has(object.spec.ephemeralContainers) ||
+        object.spec.ephemeralContainers.all(c, variables.debugImages.exists(i, c.image.startsWith(i)))
+      message: "kubectl debug may only use a curated image"
+      messageExpression: >-
+        'ephemeral containers may only run a curated debug image. Allowed prefixes: ' +
+        params.data['debugImages'] +
+        ' (fully qualified names only -- a bare `busybox` matches no prefix)'
+      reason: Forbidden
+    - expression: >-
+        variables.sub != 'token' || !variables.isHuman || variables.team == '' || variables.isBootstrap
+      message: "humans may not mint ServiceAccount tokens in a team namespace"
+      messageExpression: >-
+        request.userInfo.username + ' may not create a token for serviceaccount ' + request.name +
+        ' in ' + request.namespace + ': a workload token is a standing credential that outlives any ' +
+        'AccessRequest window. Request the role you need instead'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: privileged-access-guard
+spec:
+  policyName: privileged-access-guard
+  validationActions: [Deny, Audit]
+  paramRef:
+    name: platform-policy-params
+    namespace: flux-system
+    parameterNotFoundAction: Deny

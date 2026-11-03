@@ -1,0 +1,14 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+  labels:
+    app.kubernetes.io/part-of: platform
+    platform.k8s-base/privileged-access: forbidden
+    # istio-cni and ztunnel are host-network DaemonSets with NET_ADMIN and
+    # hostPath mounts; nothing less than privileged admits them.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled

@@ -1,0 +1,74 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: team-namespace-labels
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE]
+        resources: [namespaces]
+  matchConditions:
+    - name: team-named-or-team-labelled
+      expression: >-
+        object.metadata.name.startsWith('team-') ||
+        (has(object.metadata.labels) && 'platform.k8s-base/team' in object.metadata.labels)
+  variables:
+    - name: team
+      expression: >-
+        (has(object.metadata.labels) && 'platform.k8s-base/team' in object.metadata.labels)
+          ? object.metadata.labels['platform.k8s-base/team'] : ''
+    - name: writers
+      expression: "params.data['platformWriters'].split(',')"
+    - name: unprefixed
+      expression: >-
+        params.data['unprefixedTeamNamespaces'].split(',').exists(n, n == object.metadata.name)
+    - name: isPlatformUpdate
+      expression: "request.operation == 'UPDATE' && request.userInfo.username in variables.writers"
+  validations:
+    - expression: "variables.isPlatformUpdate || variables.team != ''"
+      message: "a team namespace must carry the label platform.k8s-base/team"
+      messageExpression: >-
+        'namespace ' + object.metadata.name + ' is team-named but has no platform.k8s-base/team label;' +
+        ' without it the VAP bindings, the per-team NetworkPolicy and the Cilium isolation policy all ignore it'
+      reason: Forbidden
+    - expression: >-
+        variables.isPlatformUpdate ||
+        (has(object.metadata.labels) && 'pod-security.kubernetes.io/enforce' in object.metadata.labels)
+      message: "a team namespace must carry the label pod-security.kubernetes.io/enforce"
+      messageExpression: >-
+        'namespace ' + object.metadata.name +
+        ' must set pod-security.kubernetes.io/enforce explicitly (restricted, or baseline when devops opts in)'
+      reason: Forbidden
+    - expression: >-
+        variables.isPlatformUpdate || variables.unprefixed || variables.team == '' ||
+        object.metadata.name == variables.team || object.metadata.name.startsWith(variables.team + '-')
+      message: "a team namespace name must be the team name, start with <team>-, or be listed in unprefixedTeamNamespaces"
+      messageExpression: >-
+        'namespace ' + object.metadata.name + ' claims team ' + variables.team +
+        ' but is not named ' + variables.team + ' or ' + variables.team + '-<suffix>' +
+        ' and is not one of the platform-reserved unprefixed team namespaces'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: team-namespace-labels
+spec:
+  policyName: team-namespace-labels
+  validationActions: [Deny]
+  paramRef:
+    name: platform-policy-params
+    namespace: flux-system
+    parameterNotFoundAction: Deny
+  matchResources:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE]
+        resources: [namespaces]

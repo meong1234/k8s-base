@@ -1,0 +1,110 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: team-no-direct-exposure
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE]
+        resources: [services]
+      - apiGroups: [networking.k8s.io]
+        apiVersions: ["v1"]
+        operations: [CREATE, UPDATE]
+        resources: [ingresses]
+      - apiGroups: [gateway.networking.k8s.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [gateways]
+      - apiGroups: [gateway.networking.k8s.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [httproutes, grpcroutes, tlsroutes]
+  variables:
+    - name: resource
+      expression: "request.resource.resource"
+    - name: forbiddenTypes
+      expression: "params.data['forbiddenServiceTypes'].split(',')"
+    - name: serviceType
+      expression: >-
+        (variables.resource == 'services' && has(object.spec.type))
+          ? object.spec.type : 'ClusterIP'
+    - name: gatewayClass
+      expression: >-
+        (variables.resource == 'gateways' && has(object.spec.gatewayClassName))
+          ? object.spec.gatewayClassName : ''
+    - name: isRoute
+      expression: >-
+        variables.resource == 'httproutes' || variables.resource == 'grpcroutes' ||
+        variables.resource == 'tlsroutes'
+    - name: isSecOpsEdge
+      expression: >-
+        has(namespaceObject.metadata.labels) &&
+        'platform.k8s-base/role' in namespaceObject.metadata.labels &&
+        (namespaceObject.metadata.labels['platform.k8s-base/role'] == 'public-edge' ||
+         namespaceObject.metadata.labels['platform.k8s-base/role'] == 'partner-edge')
+  validations:
+    - expression: >-
+        variables.resource != 'services' ||
+        !variables.forbiddenTypes.exists(t, t == variables.serviceType)
+      message: "a team namespace may not publish a Service of type LoadBalancer or NodePort"
+      messageExpression: >-
+        'Service ' + request.namespace + '/' + object.metadata.name + ' may not have type ' +
+        variables.serviceType + ': ' + params.data['forbiddenServiceTypes'] +
+        ' are reserved for the platform. Public exposure goes through an HTTPRoute in public-api' +
+        ' (reviewed by team-sec-ops); the ingress Gateways in ' +
+        params.data['ingressNamespace'] + ' are platform-owned'
+      reason: Forbidden
+    - expression: "variables.resource != 'ingresses'"
+      message: "Ingress is retired on this platform; use Gateway API"
+      messageExpression: >-
+        'Ingress ' + request.namespace + '/' + object.metadata.name +
+        ' is refused: ingress-nginx is retired and no Ingress controller runs here.' +
+        ' Exposure is a PR to team-sec-ops for a route in public-api'
+      reason: Forbidden
+    - expression: >-
+        variables.resource != 'gateways' ||
+        variables.gatewayClass == params.data['waypointGatewayClass']
+      message: "a team may only create Gateways of the istio-waypoint class"
+      messageExpression: >-
+        'Gateway ' + request.namespace + '/' + object.metadata.name + ' uses gatewayClassName ' +
+        variables.gatewayClass + '; a team namespace may only create Gateways of class ' +
+        params.data['waypointGatewayClass'] + '. The ingress Gateways are platform-owned and live in ' +
+        params.data['ingressNamespace']
+      reason: Forbidden
+    - expression: >-
+        !variables.isRoute || variables.isSecOpsEdge || (has(object.spec.parentRefs) &&
+          object.spec.parentRefs.all(p,
+            (has(p.namespace) ? p.namespace : request.namespace) == request.namespace &&
+            p.kind == 'Gateway' && p.name == params.data['waypointGatewayName']))
+      message: "a team namespace may only route to its own waypoint; exposure is shipped by team-sec-ops"
+      messageExpression: >-
+        request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
+        ' attaches to a Gateway this namespace does not own. There is no team self-service' +
+        ' exposure: a team namespace may only parentRef its own ' +
+        params.data['waypointGatewayName'] + ' Gateway. Everything reachable from outside the' +
+        ' namespace is an HTTPRoute in public-api, opened as a PR against the team-sec-ops repo' +
+        ' and shipped under their signature, with a ReferenceGrant here as consent'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: team-no-direct-exposure
+spec:
+  policyName: team-no-direct-exposure
+  validationActions: [Deny]
+  paramRef:
+    name: platform-exposure-params
+    namespace: flux-system
+    parameterNotFoundAction: Deny
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: platform.k8s-base/team
+          operator: Exists

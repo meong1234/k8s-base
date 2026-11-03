@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: depends-on-__OWNING_TEAM__-__SERVICE__
+  namespace: __CALLER_NAMESPACE__
+  labels:
+    platform.k8s-base/cross-team-access: depends-on-service
+    platform.k8s-base/owning-team: __OWNING_TEAM__
+    platform.k8s-base/service: __SERVICE__
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: __OWNING_NAMESPACE__
+      ports:
+        - port: 15008

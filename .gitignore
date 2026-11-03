@@ -1,0 +1,19 @@
+# OS ignores
+.DS_Store
+
+# IntelliJ workspace-specific
+.idea
+
+# Build / scratch output
+/tmp/
+
+# Generated key material — private keys must never be committed.
+/.keys/
+*.agekey
+cosign.key
+
+# Local scratch folder, never committed.
+/.ignore/
+
+# Built binaries from the warden Go module (make build / make manifests)
+/warden/bin/

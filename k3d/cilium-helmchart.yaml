@@ -1,0 +1,58 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: cilium
+  namespace: kube-system
+spec:
+  repo: https://helm.cilium.io
+  chart: cilium
+  version: 1.20.4
+  targetNamespace: kube-system
+  # Without it the helm-install job carries no toleration for the
+  # node.kubernetes.io/not-ready taint every node wears until a CNI exists, so
+  # the chart that provides the CNI could never be scheduled.
+  bootstrap: true
+  valuesContent: |-
+    ipam:
+      operator:
+        clusterPoolIPv4PodCIDRList: ["10.42.0.0/16"]
+    # The chart pins images by digest, and containerd then asks the mirror for
+    # that exact digest, which a locally re-pushed single-platform copy never
+    # has. Pulling by tag lets the local registry serve the pre-pushed images.
+    image:
+      useDigest: false
+    operator:
+      replicas: 1
+      image:
+        useDigest: false
+    cgroup:
+      autoMount:
+        enabled: false
+      hostRoot: /sys/fs/cgroup
+    # Istio's CNI plugin has to chain after Cilium's; `exclusive` would make
+    # Cilium rewrite the conflist and drop istio-cni on every agent restart.
+    cni:
+      exclusive: false
+    # socketLB translates a service VIP inside the socket layer, before
+    # ztunnel's in-pod redirect can see the connection. Host namespace only
+    # keeps it away from pod traffic. Inert while kubeProxyReplacement is
+    # false (bpf-lb-sock stays off), set so enabling it later cannot
+    # silently break the mesh.
+    socketLB:
+      hostNamespaceOnly: true
+    envoy:
+      enabled: false
+    hubble:
+      relay:
+        enabled: true
+        image:
+          useDigest: false
+      ui:
+        enabled: true
+        frontend:
+          image:
+            useDigest: false
+        backend:
+          image:
+            useDigest: false
+    policyEnforcementMode: default

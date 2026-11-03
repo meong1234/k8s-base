@@ -1,0 +1,56 @@
+---
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: api-partner-bank-test
+  namespace: egress-allowlist
+  labels:
+    istio.io/use-waypoint: egress-waypoint
+    istio.io/use-waypoint-namespace: platform-egress
+spec:
+  hosts:
+    - api.partner-bank.test
+  location: MESH_EXTERNAL
+  ports:
+    - number: 80
+      name: http
+      protocol: HTTP
+      targetPort: 443
+  resolution: STATIC
+  endpoints:
+    - address: 172.28.0.250
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: api-partner-bank-test
+  namespace: egress-allowlist
+spec:
+  host: api.partner-bank.test
+  trafficPolicy:
+    tls:
+      mode: MUTUAL
+      credentialName: partner-bank-client
+      sni: api.partner-bank.test
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: api-partner-bank-test
+  namespace: egress-allowlist
+spec:
+  targetRefs:
+    - group: networking.istio.io
+      kind: ServiceEntry
+      name: api-partner-bank-test
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/team-b-batch/sa/payments
+      to:
+        - operation:
+            ports: ["80"]
+            methods: ["POST"]
+            paths: ["/transfers"]

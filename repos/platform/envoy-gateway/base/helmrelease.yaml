@@ -1,0 +1,46 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: envoy-gateway
+  namespace: flux-system
+spec:
+  interval: 10m
+  targetNamespace: envoy-gateway-system
+  releaseName: envoy-gateway
+  serviceAccountName: kustomize-controller
+  maxHistory: 2
+  chartRef:
+    kind: OCIRepository
+    name: envoy-gateway-chart
+    namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    crds:
+      enabled: false
+
+    deployment:
+      replicas: 1
+      envoyGateway:
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 384Mi
+
+    config:
+      envoyGateway:
+        provider:
+          type: Kubernetes
+        logging:
+          level:
+            default: warn

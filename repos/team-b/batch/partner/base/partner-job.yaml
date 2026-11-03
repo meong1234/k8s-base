@@ -1,0 +1,67 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: partner-probe
+  namespace: team-b-batch
+  labels:
+    app.kubernetes.io/name: partner-probe
+spec:
+  backoffLimit: 0
+  completions: 1
+  parallelism: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: partner-probe
+    spec:
+      restartPolicy: Never
+      serviceAccountName: payments
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: scratch
+          emptyDir: {}
+      containers:
+        - name: probe
+          image: docker.io/curlimages/curl:8.11.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              probe() {
+                label=$1; shift
+                code=$(curl -sS -m 10 -o /tmp/body -w '%{http_code}' "$@" 2>/tmp/err) || code=000
+                printf 'probe %s=%s\n' "$label" "$code"
+                [ -s /tmp/err ]  && sed 's/^/    curl: /' /tmp/err
+                [ "$code" = 200 ] && head -c 200 /tmp/body | sed 's/^/    body: /'
+                printf '\n'
+                eval "r_$label=$code"
+              }
+              echo "partner probes from $(hostname) as sa/payments in team-b-batch"
+              echo ""
+              probe transfers -X POST -H 'content-type: application/json' -d '{"amount":1}' \
+                http://api.partner-bank.test/transfers
+              probe get       http://api.partner-bank.test/transfers
+              probe direct443 -k -X POST -H 'content-type: application/json' -d '{"amount":1}' \
+                https://api.partner-bank.test:443/transfers
+              printf 'results transfers=%s get=%s direct443=%s\n' \
+                "$r_transfers" "$r_get" "$r_direct443"
+              exit 0
+          volumeMounts:
+            - name: scratch
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

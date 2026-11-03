@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Secret
+metadata:
+    name: podinfo-config
+    namespace: team-c-apps
+type: Opaque
+stringData:
+    ui-message: ENC[AES256_GCM,data:PvFIuoar9xR4F9+GlS5oKuLVYj79WhXhsGEnHjPkDwxBo9llm8xJqA==,iv:3jMwKms5SxbHRC5+GuuxOQ+DOXaBlcE4nAdBEuLWzZc=,tag:lq3t8OcPhdqm5HfZrX7jXg==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB3UWlJQUlERjFQNnd3RW9r
+            WTcvOHZLeERlSEw3LzRNbEZpYjh1QjdUdVRFCk5SSVN0OWhJY2V6LzlITlVhQ1Aw
+            Y0dVdnRCT0l4YkJlRE9yMUVPeUQvRU0KLS0tIFczZ3JrRmpEcFAzYnA5VkV3M1Z3
+            ZExYWm40ak5pNVpYdW90aGVwRVNHZU0KPZwk7C+8vV754I3m8/qZJOWI+MLmRSdh
+            4+GTaJsi7ajy0fZOw1O5aKhdMwSqr1ix7mgTsqyusgvZuzInyUco4Q==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1sdxlsmrdhwtj5et3l4j5pyy8cnyz27mgthvz3xfes38u7uv0vvtqq99n97
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-11-02T04:55:00Z"
+    mac: ENC[AES256_GCM,data:Lljy1vd9W6bU7Ktj84bXOX9OvdFGkWbgUOgDwMBF6BWA5ThNrjRglcBbtRszuOc6yyLDgC+W/FOyfHgzfPGkEuoCR92l64aaF8BKZZHPLmwzTLaeH416w+iBjfEpwrr4OErSN6aUFUOdHA2yAQJMuIBz/K8gxQDDJ0cJkZIVDLU=,iv:L/jBlGz7vBSRW6DIvYtjNqKn3tHwXUVX3yg++HaayWY=,tag:o3a7Oyb/Jl4Yd7CzvgVHUA==,type:str]
+    version: 3.13.3

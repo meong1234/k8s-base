@@ -1,0 +1,25 @@
+users:
+  - email: alice@team-a.local
+    name: Alice Alvarez
+    role: developer
+    groups: [team-a:dev]
+  - email: bob@team-a.local
+    name: Bob Boateng
+    role: team lead
+    groups: [team-a:admin]
+  - email: carol@team-b.local
+    name: Carol Chen
+    role: developer
+    groups: [team-b:dev]
+  - email: viewer@company.local
+    name: Company On-Call
+    role: read everything
+    groups: [company:viewer]
+  - email: ops@platform.local
+    name: Olga Okonkwo
+    role: platform engineer
+    groups: [platform:operator]
+  - email: ops2@platform.local
+    name: Omar Oyelaran
+    role: platform engineer, second approver
+    groups: [platform:operator]

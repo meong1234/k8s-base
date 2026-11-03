@@ -1,0 +1,24 @@
+apiVersion: apiserver.config.k8s.io/v1
+kind: AuthenticationConfiguration
+jwt:
+  - issuer:
+      url: https://dex.local-dev.test:8443
+      certificateAuthority: __CA_PEM__
+      audiences:
+        - kubernetes
+      audienceMatchPolicy: MatchAny
+    claimValidationRules:
+      # The apiserver refuses claims.email as a username unless email_verified
+      # is referenced somewhere; Dex's local connector always sends it true.
+      - expression: "!has(claims.email_verified) || claims.email_verified == true"
+        message: "the email claim must not be marked unverified"
+    claimMappings:
+      username:
+        expression: claims.email
+      groups:
+        expression: __GROUPS_MAP__
+    userValidationRules:
+      - expression: "!user.username.startsWith('system:')"
+        message: "an OIDC identity may not claim a system: username"
+      - expression: user.groups.all(g, !g.startsWith('system:'))
+        message: "an OIDC identity may not claim a system: group"

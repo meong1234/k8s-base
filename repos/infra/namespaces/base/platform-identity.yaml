@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-identity
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  labels:
+    app.kubernetes.io/part-of: platform
+    platform.k8s-base/privileged-access: forbidden
+    platform.k8s-base/role: identity
+    platform.k8s-base/public-backend: allowed
+    platform.k8s-base/internal-route: allowed
+    istio.io/dataplane-mode: ambient
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted

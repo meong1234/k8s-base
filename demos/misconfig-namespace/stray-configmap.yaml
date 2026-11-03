@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stray
+  namespace: team-a-apps
+data:
+  note: "shipped by team-b with the wrong namespace in its manifest"

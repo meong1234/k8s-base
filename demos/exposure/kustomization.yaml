@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - lb-service.yaml
+  - public-parentref-route.yaml
+  - foreign-backend-route.yaml
+  - platform-backend-route.yaml
+  - no-auth-label-route.yaml
+  - wrong-prefix-route.yaml
+  - api-key-on-public.yaml

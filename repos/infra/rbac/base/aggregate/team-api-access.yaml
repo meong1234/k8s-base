@@ -1,0 +1,45 @@
+---
+# The built-in `admin`/`edit` ClusterRoles only cover core and built-in groups.
+# A team's Flux ServiceAccount is bound to `admin`, so without this aggregation
+# it cannot apply the very objects the platform asks it to ship: its own
+# AuthorizationPolicies, its ReferenceGrant, and (for team-sec-ops) the public
+# routes and edge policies.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform-team-api-access
+  labels:
+    app.kubernetes.io/part-of: platform
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+rules:
+  - apiGroups: [gateway.networking.k8s.io]
+    resources:
+      - httproutes
+      - grpcroutes
+      - tlsroutes
+      - tcproutes
+      - udproutes
+      - referencegrants
+      - gateways
+      - backendtlspolicies
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [gateway.envoyproxy.io]
+    resources:
+      - backendtrafficpolicies
+      - securitypolicies
+      - clienttrafficpolicies
+      - envoyextensionpolicies
+      - envoypatchpolicies
+      - httproutefilters
+      - backends
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [security.istio.io]
+    resources: [authorizationpolicies, peerauthentications, requestauthentications]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.istio.io]
+    resources: [serviceentries, destinationrules, virtualservices, sidecars, workloadentries]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [telemetry.istio.io]
+    resources: [telemetries]
+    verbs: [get, list, watch, create, update, patch, delete]

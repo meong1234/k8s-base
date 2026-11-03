@@ -1,0 +1,73 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: api-path-owner
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [gateway.networking.k8s.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [httproutes]
+  variables:
+    - name: owner
+      expression: >-
+        (has(object.metadata.labels) && 'platform.k8s-base/owner-team' in object.metadata.labels)
+          ? object.metadata.labels['platform.k8s-base/owner-team'] : ''
+    - name: registryTeam
+      expression: "params.data['team']"
+    - name: registryPaths
+      expression: "params.data['paths'].split(',')"
+  validations:
+    - expression: >-
+        variables.owner != variables.registryTeam ||
+        (has(object.spec.rules) && object.spec.rules.all(r,
+          has(r.matches) && r.matches.all(m,
+            has(m.path) && m.path.type == 'PathPrefix' &&
+            size(m.path.value.split('/')) >= 2 &&
+            variables.registryPaths.exists(p, p == m.path.value.split('/')[1]))))
+      message: "a public route may only claim a path prefix the platform allocated to its owner team"
+      messageExpression: >-
+        request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
+        ' is labelled platform.k8s-base/owner-team=' + variables.owner +
+        ' but claims a path outside the prefixes allocated to that team. Every rule must match a PathPrefix whose' +
+        ' first segment is allocated to ' + variables.owner +
+        ' in the fleet repo (teams.yaml apiPaths); the allocation for ' + variables.registryTeam +
+        ' is ' + params.data['paths']
+      reason: Forbidden
+    - expression: >-
+        variables.owner == variables.registryTeam ||
+        !has(object.spec.rules) ||
+        object.spec.rules.all(r, !has(r.matches) || r.matches.all(m,
+          !has(m.path) || size(m.path.value.split('/')) < 2 ||
+          !variables.registryPaths.exists(p, p == m.path.value.split('/')[1])))
+      message: "a public route may not claim another team's path prefix"
+      messageExpression: >-
+        request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
+        ' is labelled platform.k8s-base/owner-team=' + variables.owner +
+        ' but claims a path prefix allocated to ' + variables.registryTeam +
+        ' (' + params.data['paths'] + ') in the fleet repo (teams.yaml apiPaths).' +
+        ' A prefix belongs to one team: ask the platform team to allocate one, the way a namespace is'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: api-path-owner
+spec:
+  policyName: api-path-owner
+  validationActions: [Deny]
+  paramRef:
+    namespace: flux-system
+    selector:
+      matchLabels:
+        platform.k8s-base/registry: api-paths
+    parameterNotFoundAction: Deny
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        platform.k8s-base/role: public-edge

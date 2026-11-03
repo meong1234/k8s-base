@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - gateway.envoyproxy.io_backends.yaml
+  - gateway.envoyproxy.io_backendtrafficpolicies.yaml
+  - gateway.envoyproxy.io_clienttrafficpolicies.yaml
+  - gateway.envoyproxy.io_envoyextensionpolicies.yaml
+  - gateway.envoyproxy.io_envoypatchpolicies.yaml
+  - gateway.envoyproxy.io_envoyproxies.yaml
+  - gateway.envoyproxy.io_httproutefilters.yaml
+  - gateway.envoyproxy.io_securitypolicies.yaml

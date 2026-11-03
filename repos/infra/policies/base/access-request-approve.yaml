@@ -1,0 +1,103 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: access-request-approve
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [access.k8s-base.io]
+        apiVersions: ["*"]
+        operations: [UPDATE]
+        resources: ["accessrequests/status"]
+  variables:
+    - name: oldPhase
+      expression: >-
+        (has(oldObject.status) && has(oldObject.status.phase)) ? oldObject.status.phase : ''
+    - name: newPhase
+      expression: >-
+        (has(object.status) && has(object.status.phase)) ? object.status.phase : ''
+    - name: approvedBy
+      expression: >-
+        (has(object.status) && has(object.status.approvedBy)) ? object.status.approvedBy : ''
+    - name: isWarden
+      expression: "request.userInfo.username == params.data['wardenServiceAccount']"
+    - name: groups
+      expression: "has(request.userInfo.groups) ? request.userInfo.groups : ['']"
+    - name: isOperator
+      expression: "'platform:operator' in variables.groups"
+    - name: adminTeams
+      expression: "variables.groups.filter(g, g.endsWith(':admin')).map(g, g.split(':')[0])"
+    - name: adminsTarget
+      expression: >-
+        variables.adminTeams.exists(t, object.spec.targetNamespace == t ||
+          object.spec.targetNamespace.startsWith(t + '-'))
+    - name: isBootstrap
+      expression: "request.userInfo.username in params.data['bootstrapWriters'].split(',')"
+    - name: approving
+      expression: "!variables.isWarden && variables.newPhase == 'Approved'"
+  validations:
+    - expression: >-
+        variables.isWarden ||
+        variables.oldPhase == variables.newPhase ||
+        (variables.oldPhase in ['', 'Pending'] && variables.newPhase in ['Approved', 'Denied', 'Revoked']) ||
+        (variables.oldPhase == 'Active' && variables.newPhase == 'Revoked')
+      message: "that status.phase transition is reserved for the access warden"
+      messageExpression: >-
+        request.userInfo.username + ' may not move status.phase from ' +
+        (variables.oldPhase == '' ? '<unset>' : variables.oldPhase) + ' to ' +
+        (variables.newPhase == '' ? '<unset>' : variables.newPhase) +
+        '; humans may only approve, deny or revoke -- Active and Expired are written by ' +
+        params.data['wardenServiceAccount']
+      reason: Forbidden
+    - expression: "!variables.approving || variables.approvedBy == request.userInfo.username"
+      message: "status.approvedBy must be the user performing the approval"
+      messageExpression: >-
+        'status.approvedBy is ' + (variables.approvedBy == '' ? '<unset>' : variables.approvedBy) +
+        ' but the patch comes from ' + request.userInfo.username
+      reason: Forbidden
+    - expression: "!variables.approving || variables.approvedBy != object.spec.requester"
+      message: "an AccessRequest may not be approved by its own requester"
+      messageExpression: >-
+        object.spec.requester + ' may not approve their own request for ' + object.spec.role +
+        ' on ' + object.spec.targetNamespace + '; four eyes are required'
+      reason: Forbidden
+    - expression: >-
+        !variables.approving ||
+        (object.spec.role == 'cluster-admin' ? variables.isOperator
+                                             : (variables.isOperator || variables.adminsTarget))
+      message: "the approver's groups do not cover this request"
+      messageExpression: >-
+        request.userInfo.username + ' may not approve ' + object.spec.role + ' on ' +
+        object.spec.targetNamespace + ': cluster-admin needs platform:operator, a team role needs ' +
+        'platform:operator or <team>:admin for that namespace'
+      reason: Forbidden
+    - expression: >-
+        !variables.approving ||
+        (!has(object.status.expiresAt) && !has(object.status.bindingRef))
+      message: "status.expiresAt and status.bindingRef are the warden's to write"
+      messageExpression: >-
+        'an approval must not pre-set status.expiresAt or status.bindingRef: ' +
+        params.data['wardenServiceAccount'] + ' computes the window from spec.duration'
+      reason: Forbidden
+    - expression: >-
+        variables.isWarden || variables.newPhase != 'Revoked' ||
+        request.userInfo.username == object.spec.requester ||
+        variables.isOperator || variables.adminsTarget || variables.isBootstrap
+      message: "only the requester, a platform:operator, the target team's admin or the break-glass certificate may revoke"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: access-request-approve
+spec:
+  policyName: access-request-approve
+  validationActions: [Deny, Audit]
+  paramRef:
+    name: platform-policy-params
+    namespace: flux-system
+    parameterNotFoundAction: Deny

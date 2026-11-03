@@ -1,0 +1,74 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: access-request-create
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [access.k8s-base.io]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [accessrequests]
+  variables:
+    - name: groups
+      expression: "has(request.userInfo.groups) ? request.userInfo.groups : ['']"
+    - name: teams
+      expression: >-
+        variables.groups.filter(g, g.endsWith(':dev') || g.endsWith(':admin')).map(g, g.split(':')[0])
+    - name: isOperator
+      expression: "'platform:operator' in variables.groups"
+    - name: target
+      expression: "object.spec.targetNamespace"
+    - name: ownsTarget
+      expression: >-
+        variables.teams.exists(t, variables.target == t || variables.target.startsWith(t + '-'))
+    - name: inHome
+      expression: "variables.teams.exists(t, request.namespace == t)"
+    - name: cap
+      expression: >-
+        object.spec.role == 'debug' ? duration('4h')
+          : (object.spec.role == 'team-admin' ? duration('8h') : duration('1h'))
+  validations:
+    - expression: "object.spec.requester == request.userInfo.username"
+      message: "spec.requester must be the user creating the AccessRequest"
+      messageExpression: >-
+        'spec.requester is ' + object.spec.requester + ' but this request is being created by ' +
+        request.userInfo.username + '; an AccessRequest may only be filed for yourself'
+      reason: Forbidden
+    - expression: "object.spec.reason.size() >= 10"
+      message: "spec.reason must be at least 10 characters: it is what the approver and the audit log see"
+      reason: Forbidden
+    - expression: "duration(object.spec.duration) <= variables.cap"
+      message: "spec.duration exceeds the cap for this role"
+      messageExpression: >-
+        'role ' + object.spec.role + ' is capped at ' + string(variables.cap) +
+        ' but spec.duration is ' + object.spec.duration +
+        ' (caps: debug 4h, team-admin 8h, cluster-admin 1h)'
+      reason: Forbidden
+    - expression: >-
+        object.spec.role != 'cluster-admin' ||
+        (variables.isOperator && request.namespace == 'platform-access' && variables.target == 'platform-access')
+      message: "a cluster-admin request must be filed in platform-access by a platform:operator"
+      messageExpression: >-
+        'cluster-admin may only be requested by a platform:operator, in namespace platform-access, with ' +
+        'spec.targetNamespace: platform-access -- got namespace ' + request.namespace +
+        ', target ' + variables.target + ', user ' + request.userInfo.username
+      reason: Forbidden
+    - expression: >-
+        object.spec.role == 'cluster-admin' || (variables.ownsTarget && variables.inHome)
+      message: "the target namespace must belong to one of the requester's teams, and the request must live in that team's home namespace"
+      messageExpression: >-
+        request.userInfo.username + ' may request access to ' + variables.target +
+        ' only from the home namespace of a team it belongs to; groups map to teams ' +
+        (variables.teams.size() == 0 ? '<none>' : variables.teams.join(',')) +
+        ' and the request was filed in ' + request.namespace
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: access-request-create
+spec:
+  policyName: access-request-create
+  validationActions: [Deny, Audit]

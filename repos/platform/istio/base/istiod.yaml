@@ -1,0 +1,64 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istiod
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: istio-base
+  interval: 10m
+  targetNamespace: istio-system
+  releaseName: istiod
+  serviceAccountName: kustomize-controller
+  maxHistory: 2
+  chart:
+    spec:
+      chart: istiod
+      version: 1.31.3
+      sourceRef:
+        kind: HelmRepository
+        name: istio
+        namespace: flux-system
+      interval: 1h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  values:
+    profile: ambient
+    pilot:
+      autoscaleEnabled: false
+      replicaCount: 1
+      # The chart asks for 500m / 2Gi, which is a quarter of a laptop's
+      # Docker allocation for a control plane serving six workloads.
+      resources:
+        requests:
+          cpu: 50m
+          memory: 256Mi
+    # The egress audit trail is the waypoint's access log, and Istio ships with
+    # access logging off.
+    meshConfig:
+      accessLogFile: /dev/stdout
+      # Envoy's default format carries the SNI host but not the caller, and the
+      # caller is what makes the egress log an audit trail.
+      accessLogFormat: |
+        [%START_TIME%] caller=%FILTER_STATE(io.istio.peer_principal:PLAIN)% sni=%REQUESTED_SERVER_NAME% method=%REQ(:METHOD)% path=%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% code=%RESPONSE_CODE% upstream=%UPSTREAM_HOST% route=%UPSTREAM_CLUSTER% flags=%RESPONSE_FLAGS% sent=%BYTES_SENT% received=%BYTES_RECEIVED% duration=%DURATION%
+
+    # istiod generates the waypoint and ingress-gateway Deployments itself, and
+    # its template omits seccompProfile unless this value is set — the one thing
+    # PSA `restricted` rejects about an otherwise compliant Envoy pod.
+    gateways:
+      seccompProfile:
+        type: RuntimeDefault
+    global:
+      proxy:
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi

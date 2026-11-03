@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Secret
+metadata:
+    name: partner-a-keys
+    namespace: partner-api
+type: Opaque
+stringData:
+    partner-a-prod: ENC[AES256_GCM,data:LNjdlM4cy0AJLVUTX2xmGhpPSHIV4A2oI13GaDF1RFWaEhkMaTjuMDRXG87dvTVCMBMoJxOY9NwFjj7bmeK0hQ==,iv:VyUdG1LhIrtNiMC5mbLwz6hEBdNtA9X8vPKlivn5zbg=,tag:0MRoKQhETHMp0qC0i8pZ+w==,type:str]
+    partner-a-staging: ENC[AES256_GCM,data:CyIzcop20K6sp621ttLk+O3LRYO8npIoI/Hww/GY4sEaGDXMPrH7HXcJiZ8bORWiZLqg+y9y+vnVIp5599AyBw==,iv:Nt6ZkMP9Df5fFCeYjO0LSSKod9HB/DwYuZvz2fLLwpg=,tag:FiaIbMvMkBLNiF2sgep3rA==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSA3d3pUYXhVa1VqYUZybVpj
+            bm5FK1UyZk5JNXl5OWtud282VVlxcy9mSUhRCnd1WEFBYzYwMndWdkM4VjdFWWpk
+            d0Mya0tXMnV3SERESGNzeTNCNjlPckkKLS0tIFFBRWcrUUM1aDZMV2w0aW9kZkk4
+            R1AzQi9hWUk1VnRwK3lKV0VtVHM2VE0KGsxUAoFbis/3znAu6tUylt+t6fyPD27U
+            1Cuphmsufj7XBua2riQeLjJwMIUhosHmnES+BecSlso19fqEHsNaPA==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1c8a7e09dt6u0qc2zqyryd0mqx6azvqcnuhzzuju5qj7cyvxzxa5qlwgf24
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-11-03T00:58:14Z"
+    mac: ENC[AES256_GCM,data:xF7f2TC7LBv8DY0p6xjP4Q9GCstIgMdlTUXwqmTxUPWXpFUCZpikdpx8zdtxSE9gCXu9HSuFVHBwfmK7rrAF6GViArt0FQWUDxht+hONIEer9xOVR3fwxBSi44HCnhj0mIIhZ17sGfGPnYR/axM1tbwGcinbUBGjlJKhTX9ITWw=,iv:2t18X61kseqRuY85cwQvS/OnzEdD6X3gD2zLLK2UZfI=,tag:HOLC2D9jRfZTbuTdMq0nCg==,type:str]
+    version: 3.13.3

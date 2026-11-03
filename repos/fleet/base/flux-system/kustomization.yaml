@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# cluster-sync alone: it is base's, but it is applied by make rather than by
+# itself, so clusters/<env>/bootstrap pulls it in beside that environment's
+# cluster-source. kustomize will reference a directory outside a root but not a
+# bare file, which is the only reason this root exists.
+resources:
+  - cluster-sync.yaml

@@ -1,0 +1,19 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istio-cni
+  namespace: flux-system
+spec:
+  values:
+    global:
+      platform: k3d
+    cni:
+      # k3s only moves the CNI directories when it manages a CNI itself. This
+      # cluster runs --flannel-backend=none, so containerd was left on its own
+      # defaults and the paths the k3d platform profile sets
+      # (/var/lib/rancher/k3s/agent/etc/cni/net.d and /bin) are not the ones
+      # kubelet reads. Cilium's conflist is in /etc/cni/net.d and its plugin
+      # binary in /opt/cni/bin, so istio-cni has to chain in there.
+      cniConfDir: /etc/cni/net.d
+      cniBinDir: /opt/cni/bin

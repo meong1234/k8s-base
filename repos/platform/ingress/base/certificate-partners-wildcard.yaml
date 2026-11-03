@@ -1,0 +1,25 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: partners-wildcard
+  namespace: platform-ingress
+  labels:
+    app.kubernetes.io/part-of: platform
+spec:
+  secretName: partners-wildcard-tls
+  duration: 2160h
+  renewBefore: 360h
+  commonName: "*.partners.${CLUSTER_DOMAIN}"
+  dnsNames:
+    - "*.partners.${CLUSTER_DOMAIN}"
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - server auth
+  issuerRef:
+    name: ${CERT_ISSUER}
+    kind: ClusterIssuer
+    group: cert-manager.io

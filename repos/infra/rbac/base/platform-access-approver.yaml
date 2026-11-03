@@ -1,0 +1,14 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform-access-approver
+  labels:
+    platform.k8s-base/tier: approver
+rules:
+  - apiGroups: [access.k8s-base.io]
+    resources: [accessrequests]
+    verbs: [get, list, watch]
+  - apiGroups: [access.k8s-base.io]
+    resources: [accessrequests/status]
+    verbs: [get, update, patch]

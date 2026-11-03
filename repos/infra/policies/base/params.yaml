@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-policy-params
+  namespace: flux-system
+  labels:
+    platform.k8s-base/component: policies
+data:
+  allowedRegistries: "${ALLOWED_REGISTRIES}"
+
+  platformWriters: "system:serviceaccount:flux-system:kustomize-controller,system:serviceaccount:flux-system:flux-operator"
+
+  # The cluster's own bootstrap admin, as kubectl auth whoami reports it.
+  bootstrapWriters: "${BOOTSTRAP_WRITERS}"
+
+  wardenServiceAccount: "system:serviceaccount:platform-access:access-warden"
+
+  # The roles no identity may hold by a standing binding. jit-binding-lock
+  # reads this; the ClusterRoles we own carry
+  # platform.k8s-base/standing-binding: forbidden to say the same thing where a
+  # reader meets the role, and env-check check 14 asserts the two agree.
+  # cluster-admin is here and unlabelled because it is built in: the RBAC
+  # bootstrapper owns its metadata, not this repo.
+  jitRoles: "platform-debug,platform-team-admin,cluster-admin"
+
+  debugImages: "docker.io/library/busybox:,ghcr.io/stefanprodan/podinfo:"
+
+  unprefixedTeamNamespaces: "public-api,partner-api,egress-allowlist"

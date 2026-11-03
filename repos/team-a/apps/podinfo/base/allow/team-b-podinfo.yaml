@@ -1,0 +1,45 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-team-b-podinfo
+  namespace: team-a-apps
+  labels:
+    platform.k8s-base/cross-team-access: allow-team
+    platform.k8s-base/caller-team: team-b
+    platform.k8s-base/service: podinfo
+spec:
+  podSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: waypoint
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: team-b-apps
+      ports:
+        - port: 15008
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-team-b-podinfo
+  namespace: team-a-apps
+  labels:
+    platform.k8s-base/cross-team-access: allow-team
+    platform.k8s-base/caller-team: team-b
+    platform.k8s-base/service: podinfo
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: podinfo
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/team-b-apps/sa/orders"]
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/api/info"]

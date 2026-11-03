@@ -1,0 +1,53 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: access-warden
+  namespace: platform-access
+  labels:
+    app.kubernetes.io/name: access-warden
+    app.kubernetes.io/part-of: platform
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: access-warden
+  labels:
+    app.kubernetes.io/name: access-warden
+    app.kubernetes.io/part-of: platform
+rules:
+  - apiGroups: [access.k8s-base.io]
+    resources: [accessrequests]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [access.k8s-base.io]
+    resources: [accessrequests/status]
+    verbs: [get, update, patch]
+  - apiGroups: [access.k8s-base.io]
+    resources: [accessrequests/finalizers]
+    verbs: [update]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings, clusterrolebindings]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    resourceNames: [platform-debug, platform-team-admin, cluster-admin]
+    verbs: [bind]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: access-warden
+  labels:
+    app.kubernetes.io/name: access-warden
+    app.kubernetes.io/part-of: platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: access-warden
+subjects:
+  - kind: ServiceAccount
+    name: access-warden
+    namespace: platform-access

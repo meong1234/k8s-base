@@ -1,0 +1,17 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: cluster-source
+  namespace: flux-system
+spec:
+  interval: 1m
+  provider: generic
+  insecure: true
+  url: oci://${OCI_REGISTRY}/fleet
+  ref:
+    tag: ${OCI_TAG}
+  verify:
+    provider: cosign
+    secretRef:
+      name: cosign-pub-platform

@@ -1,0 +1,24 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: cluster-sync
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  path: ./clusters/${CLUSTER_ENV}
+  prune: true
+  wait: false
+  serviceAccountName: kustomize-controller
+  sourceRef:
+    kind: ${SOURCE_KIND:=OCIRepository}
+    name: cluster-source
+  postBuild:
+    substituteFrom:
+      # cluster-sync is the Kustomization that creates cluster-vars, so on the
+      # first reconcile of a new cluster the ConfigMap does not exist yet.
+      - kind: ConfigMap
+        name: cluster-vars
+        optional: true

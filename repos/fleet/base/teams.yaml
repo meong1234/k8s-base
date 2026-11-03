@@ -1,0 +1,425 @@
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: teams
+  namespace: flux-system
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 10m
+spec:
+  dependsOn:
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      name: platform-config-ks
+      namespace: flux-system
+      ready: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/managed-by: flux-operator
+      platform.k8s-base/owner: devops
+  inputs: []
+  resourcesTemplate: |
+    <<- $psa := get inputs "psa" | default "restricted" >>
+    <<- $privileged := get inputs "privilegedAccess" | default "allowed" >>
+    <<- $tier := "${CLUSTER_TIER}" >>
+    <<- $adminRole := "platform-team-admin" >>
+    <<- if ne $tier "dev" >>
+    <<- $adminRole = "platform-developer" >>
+    <<- end >>
+    <<- $allowFrom := get inputs "allowFrom" | default (list) >>
+    <<- $roles := get inputs "roles" | default dict >>
+    <<- $nsPrefix := inputs | dig "namespacePrefix" (printf "%s-" inputs.team) >>
+    <<- $apiPaths := get inputs "apiPaths" | default (list) >>
+    <<- $path := get inputs "path" | default "./clusters/${CLUSTER_ENV}" >>
+    <<- $charts := list (dict "name" "podinfo" "url" "oci://ghcr.io/stefanprodan/charts/podinfo" "semver" "6.x") >>
+    ---
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: << inputs.team >>
+      annotations:
+        fluxcd.controlplane.io/prune: disabled
+      labels:
+        platform.k8s-base/team: << inputs.team >>
+        platform.k8s-base/role: team-home
+        platform.k8s-base/shard: << inputs.shard >>
+        pod-security.kubernetes.io/enforce: restricted
+        pod-security.kubernetes.io/warn: restricted
+    <<- range $ns := inputs.namespaces >>
+    ---
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: << $nsPrefix >><< $ns >>
+      annotations:
+        fluxcd.controlplane.io/prune: disabled
+      labels:
+        platform.k8s-base/team: << inputs.team >>
+        platform.k8s-base/role: << get $roles $ns | default "team-workload" >>
+        platform.k8s-base/shard: << inputs.shard >>
+        istio.io/dataplane-mode: ambient
+        platform.k8s-base/privileged-access: << $privileged >>
+        pod-security.kubernetes.io/enforce: << $psa >>
+        pod-security.kubernetes.io/warn: << $psa >>
+    <<- end >>
+    ---
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: flux
+      namespace: << inputs.team >>
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: team-view
+      namespace: << inputs.team >>
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: view
+    subjects:
+      - kind: ServiceAccount
+        name: flux
+        namespace: << inputs.team >>
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: tier-home-dev
+      namespace: << inputs.team >>
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: platform-developer
+    subjects:
+      - kind: Group
+        name: << inputs.team >>:dev
+        apiGroup: rbac.authorization.k8s.io
+      - kind: Group
+        name: << inputs.team >>:admin
+        apiGroup: rbac.authorization.k8s.io
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: tier-home-approve
+      namespace: << inputs.team >>
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: platform-access-approver
+    subjects:
+      - kind: Group
+        name: << inputs.team >>:admin
+        apiGroup: rbac.authorization.k8s.io
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: company-viewer
+      namespace: << inputs.team >>
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: view
+    subjects:
+      - kind: Group
+        name: company:viewer
+        apiGroup: rbac.authorization.k8s.io
+    ---
+    # The team Kustomization substitutes from its own namespace, never from
+    # flux-system, so the environment reaches a team through this copy.
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: cluster-vars
+      namespace: << inputs.team >>
+    data:
+      CLUSTER_ENV: ${CLUSTER_ENV}
+      CLUSTER_TIER: ${CLUSTER_TIER}
+      CLUSTER_DOMAIN: ${CLUSTER_DOMAIN}
+      PUBLIC_PORT: "${PUBLIC_PORT}"
+      INTERNAL_PORT: "${INTERNAL_PORT}"
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: << inputs.team >>-source
+      namespace: << inputs.team >>
+      labels:
+        sharding.fluxcd.io/key: << inputs.shard >>
+    spec:
+      interval: 1m
+      provider: ${OCI_PROVIDER:=generic}
+      insecure: ${OCI_INSECURE:=true}
+      url: oci://${OCI_REGISTRY}/<< inputs.team >>
+      ref:
+        tag: ${OCI_TAG}
+      verify:
+        provider: cosign
+        secretRef:
+          name: cosign-pub
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: << inputs.team >>
+      namespace: << inputs.team >>
+      labels:
+        sharding.fluxcd.io/key: << inputs.shard >>
+    spec:
+      interval: 5m
+      retryInterval: 1m
+      timeout: 5m
+      prune: true
+      wait: true
+      serviceAccountName: flux
+      sourceRef:
+        kind: OCIRepository
+        name: << inputs.team >>-source
+      path: << $path >>
+      postBuild:
+        substituteFrom:
+          - kind: ConfigMap
+            name: cluster-vars
+      commonMetadata:
+        labels:
+          sharding.fluxcd.io/key: << inputs.shard >>
+          platform.k8s-base/team: << inputs.team >>
+      decryption:
+        provider: sops
+        secretRef:
+          name: sops-age
+    <<- range $ns := inputs.namespaces >>
+    ---
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: flux
+      namespace: << $nsPrefix >><< $ns >>
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: team-admin
+      namespace: << $nsPrefix >><< $ns >>
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: admin
+    subjects:
+      - kind: ServiceAccount
+        name: flux
+        namespace: << inputs.team >>
+      - kind: ServiceAccount
+        name: flux
+        namespace: << $nsPrefix >><< $ns >>
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: tier-dev
+      namespace: << $nsPrefix >><< $ns >>
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: platform-developer
+    subjects:
+      - kind: Group
+        name: << inputs.team >>:dev
+        apiGroup: rbac.authorization.k8s.io
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: tier-admin
+      namespace: << $nsPrefix >><< $ns >>
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: << $adminRole >>
+    subjects:
+      - kind: Group
+        name: << inputs.team >>:admin
+        apiGroup: rbac.authorization.k8s.io
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: company-viewer
+      namespace: << $nsPrefix >><< $ns >>
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: view
+    subjects:
+      - kind: Group
+        name: company:viewer
+        apiGroup: rbac.authorization.k8s.io
+    <<- range $chart := $charts >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: << $chart.name >>-chart
+      namespace: << $nsPrefix >><< $ns >>
+      labels:
+        sharding.fluxcd.io/key: << inputs.shard >>
+        platform.k8s-base/catalog: "true"
+    spec:
+      interval: 10m
+      url: << $chart.url >>
+      ref:
+        semver: "<< $chart.semver >>"
+      layerSelector:
+        mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+        operation: copy
+    <<- end >>
+    ---
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: team-baseline-default-deny
+      namespace: << $nsPrefix >><< $ns >>
+    spec:
+      podSelector: {}
+      policyTypes: [Ingress, Egress]
+      ingress:
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  platform.k8s-base/team: << inputs.team >>
+            <<- range $from := $allowFrom >>
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: << $from >>
+            <<- end >>
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: envoy-gateway-system
+          ports:
+            - port: 15008
+        - from:
+            - ipBlock:
+                cidr: 169.254.7.127/32
+      egress:
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  platform.k8s-base/team: << inputs.team >>
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+          ports:
+            - protocol: UDP
+              port: 53
+            - protocol: TCP
+              port: 53
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: platform-egress
+          ports:
+            - port: 15008
+    ---
+    apiVersion: security.istio.io/v1
+    kind: AuthorizationPolicy
+    metadata:
+      name: team-baseline-allow-same-team
+      namespace: << $nsPrefix >><< $ns >>
+    spec:
+      action: ALLOW
+      rules:
+        - from:
+            - source:
+                namespaces:
+                  - << inputs.team >>
+                <<- range $n := inputs.namespaces >>
+                  - << $nsPrefix >><< $n >>
+                <<- end >>
+                <<- range $from := $allowFrom >>
+                  - << $from >>
+                <<- end >>
+        - from:
+            - source:
+                namespaces: [envoy-gateway-system]
+    <<- if get inputs "waypoint" | default false >>
+    ---
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: Gateway
+    metadata:
+      name: waypoint
+      namespace: << $nsPrefix >><< $ns >>
+      labels:
+        istio.io/waypoint-for: service
+    spec:
+      gatewayClassName: istio-waypoint
+      listeners:
+        - name: mesh
+          port: 15008
+          protocol: HBONE
+    ---
+    # team-baseline-allow-same-team has no targetRefs, so it is a ztunnel (L4)
+    # policy and is never consulted at the waypoint. Without this twin, binding a
+    # Service to the waypoint makes the team's own calls to it depend on whatever
+    # allow files it happens to have written for other teams.
+    apiVersion: security.istio.io/v1
+    kind: AuthorizationPolicy
+    metadata:
+      name: team-baseline-waypoint-allow-same-team
+      namespace: << $nsPrefix >><< $ns >>
+    spec:
+      targetRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: waypoint
+      action: ALLOW
+      rules:
+        - from:
+            - source:
+                namespaces:
+                  - << inputs.team >>
+                <<- range $n := inputs.namespaces >>
+                  - << $nsPrefix >><< $n >>
+                <<- end >>
+        - from:
+            - source:
+                namespaces: [envoy-gateway-system]
+    ---
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: team-baseline-waypoint-control-plane
+      namespace: << $nsPrefix >><< $ns >>
+    spec:
+      podSelector:
+        matchLabels:
+          gateway.networking.k8s.io/gateway-name: waypoint
+      policyTypes: [Egress]
+      egress:
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: istio-system
+          ports:
+            - port: 15012
+    <<- end >>
+    <<- end >>
+    <<- if $apiPaths >>
+    ---
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: api-paths-<< inputs.team >>
+      namespace: flux-system
+      labels:
+        platform.k8s-base/registry: api-paths
+    data:
+      team: << inputs.team >>
+      paths: << $apiPaths | join "," >>
+    <<- end >>

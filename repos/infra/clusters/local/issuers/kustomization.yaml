@@ -1,0 +1,6 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# The ClusterIssuer is a cert-manager custom resource whose CRD arrives with
+# the chart in the first stage, so it is applied by its own Flux Kustomization.
+resources:
+  - ../../../issuers/envs/local

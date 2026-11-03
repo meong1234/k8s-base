@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# The two objects `make flux-bootstrap` applies by hand, and the only reason
+# this root exists: cluster-sync cannot substitute its own spec.path, so it is
+# rendered from here by make and deliberately kept out of the fleet artifact.
+# cluster-source is this environment's, cluster-sync is base's.
+resources:
+  - cluster-source.yaml
+  - ../../../base/flux-system

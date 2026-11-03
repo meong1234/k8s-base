@@ -1,0 +1,83 @@
+# The publisher, for when repos/<name>/ becomes a git repo of its own.
+#
+# `make push` is the local stand-in for this file: it reads the working tree,
+# signs with a key from .keys/, and writes :local. Nothing else about the
+# platform is local-shaped - every environment pulls a signed OCI artifact, so
+# the cluster holds registry read credentials rather than git credentials, an
+# artifact cannot change under a force-push, and promotion is a retag of a
+# digest (`make promote`). What changes on a real platform is only who pushes.
+#
+# This file is deliberately NOT under .github/workflows/: this repository is the
+# monorepo stand-in for eight repos, so a workflow here would publish the wrong
+# thing. Copy it to .github/workflows/artifact-publish.yml in the repo that was
+# split out of one repos/<name>/ directory, where `path: .` is that repo's root.
+#
+# Keyless signing is the reason this is not just `make push` with a different
+# registry: the signature is bound to this workflow's own OIDC identity, so no
+# private key exists to leak or rotate. The cluster side of that contract is the
+# `verify` block in repos/fleet/clusters/<env>/sources.yaml, which must name the
+# issuer and subject below - that is why the sources are per-environment files
+# and not part of fleet's base.
+#
+#   verify:
+#     provider: cosign
+#     matchOIDCIdentity:
+#       - issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
+#         subject: "^https://github\\.com/ORG/REPO/\\.github/workflows/artifact-publish\\.yml@refs/heads/main$"
+
+name: artifact-publish
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+  # Mints the OIDC token cosign signs with. Without it the signature falls back
+  # to a key that does not exist here and the step fails closed.
+  id-token: write
+
+env:
+  # The tag a merge to main publishes. Each environment pulls its own tag, so
+  # main feeds the least privileged one and `make promote` moves a digest
+  # onward after whatever gate that environment asks for.
+  OCI_REPO: ghcr.io/${{ github.repository }}
+  OCI_TAG: dev
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: fluxcd/flux2/action@main
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to the registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      # The revision is what Flux reports as the applied source, so it has to
+      # name a commit a reviewer can check out, not the time of the build.
+      - name: Push the artifact
+        id: push
+        run: |
+          flux push artifact "oci://${OCI_REPO}:${OCI_TAG}" \
+            --path=. \
+            --source="${{ github.repositoryUrl }}" \
+            --revision="${{ github.ref_name }}@sha1:${{ github.sha }}" \
+            --output=json > push.json
+          echo "digest=$(jq -r .digest push.json)" >>"$GITHUB_OUTPUT"
+
+      # Signing the digest rather than the tag is what lets promotion be a
+      # retag: the signature stays valid under every tag the digest wears.
+      - name: Sign the digest
+        run: cosign sign --yes "${OCI_REPO}@${{ steps.push.outputs.digest }}"
+
+      - name: Verify what was just published
+        run: |
+          cosign verify "${OCI_REPO}@${{ steps.push.outputs.digest }}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            --certificate-identity="https://github.com/${{ github.repository }}/.github/workflows/artifact-publish.yml@${{ github.ref }}"

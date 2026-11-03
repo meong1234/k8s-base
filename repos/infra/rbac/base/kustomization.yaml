@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - aggregate
+  - platform-developer.yaml
+  - platform-team-admin.yaml
+  - platform-debug.yaml
+  - platform-operator.yaml
+  - platform-access-approver.yaml

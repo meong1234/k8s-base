@@ -1,0 +1,72 @@
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages:
+  - RequestReceived
+rules:
+  - level: None
+    userGroups: [system:serviceaccounts]
+    verbs: [get, list, watch]
+
+  - level: None
+    userGroups: [system:authenticated, system:unauthenticated]
+    nonResourceURLs:
+      - /healthz*
+      - /livez*
+      - /readyz*
+      - /version
+      - /openapi/*
+      - /swagger*
+      - /metrics
+
+  - level: None
+    users: [system:kube-scheduler, system:kube-controller-manager, system:kube-proxy]
+    verbs: [get, list, watch]
+
+  - level: RequestResponse
+    resources:
+      - group: ""
+        resources:
+          - pods/exec
+          - pods/attach
+          - pods/portforward
+          - pods/ephemeralcontainers
+          - pods/proxy
+          - services/proxy
+          - nodes/proxy
+
+  - level: RequestResponse
+    resources:
+      - group: ""
+        resources: [serviceaccounts/token]
+
+  - level: RequestResponse
+    verbs: [create, update, patch, delete, deletecollection]
+    resources:
+      - group: rbac.authorization.k8s.io
+        resources: [roles, rolebindings, clusterroles, clusterrolebindings]
+      - group: access.k8s-base.io
+        resources: [accessrequests, accessrequests/status]
+
+  - level: Metadata
+    userGroups: [system:serviceaccounts, system:nodes]
+
+  - level: Metadata
+    users: [system:apiserver, system:kube-scheduler, system:kube-controller-manager, system:kube-proxy]
+
+  - level: RequestResponse
+    verbs: [create, update, patch, delete, deletecollection]
+    namespaces:
+      - team-a
+      - team-a-apps
+      - team-b
+      - team-b-apps
+      - team-b-batch
+      - team-c
+      - team-c-apps
+      - team-d
+      - team-d-analytics
+      - team-sec-ops
+      - public-api
+      - egress-allowlist
+
+  - level: Metadata

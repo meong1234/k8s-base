@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../apps/podinfo/envs/local
+  - ../../apps/orders/envs/local
+  - ../../batch/hello/envs/local
+  - ../../batch/egress-probe/envs/local
+  - ../../batch/partner/envs/local

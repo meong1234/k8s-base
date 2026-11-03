@@ -1,0 +1,148 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: public-route-owner
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [gateway.networking.k8s.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [httproutes, grpcroutes]
+  variables:
+    - name: owner
+      expression: >-
+        (has(object.metadata.labels) && 'platform.k8s-base/owner-team' in object.metadata.labels)
+          ? object.metadata.labels['platform.k8s-base/owner-team'] : ''
+    - name: auth
+      expression: >-
+        (has(object.metadata.labels) && 'platform.k8s-base/auth' in object.metadata.labels)
+          ? object.metadata.labels['platform.k8s-base/auth'] : ''
+    - name: role
+      expression: >-
+        (has(namespaceObject.metadata.labels) && 'platform.k8s-base/role' in namespaceObject.metadata.labels)
+          ? namespaceObject.metadata.labels['platform.k8s-base/role'] : ''
+    - name: suffix
+      expression: "'.' + params.data['dnsZone']"
+    - name: apiHost
+      expression: "'api.' + params.data['dnsZone']"
+    - name: partnerSuffix
+      expression: "'.partners.' + params.data['dnsZone']"
+    - name: zoneLabels
+      expression: "size(params.data['dnsZone'].split('.'))"
+    - name: publicBackends
+      expression: "params.data['publicBackendNamespaces'].split(',')"
+    - name: reservedPrefixes
+      expression: "params.data['reservedNamespacePrefixes'].split(',')"
+    - name: platformBackendsOnly
+      expression: >-
+        !has(object.spec.rules) ||
+        object.spec.rules.all(r, !has(r.backendRefs) || r.backendRefs.all(b,
+          variables.publicBackends.exists(n, n == (has(b.namespace) ? b.namespace : request.namespace))))
+    - name: redirectOnly
+      expression: >-
+        !has(object.spec.rules) ||
+        object.spec.rules.all(r,
+          !has(r.backendRefs) && has(r.filters) && r.filters.all(f, f.type == 'RequestRedirect'))
+  validations:
+    - expression: "variables.owner != ''"
+      message: "a public route must name the team that owns the backend"
+      messageExpression: >-
+        request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
+        ' must carry the label platform.k8s-base/owner-team; it is what sec-ops review,' +
+        ' the path registry and the backend check are all keyed on'
+      reason: Forbidden
+    - expression: "variables.auth == 'none' || variables.auth == 'jwt' || variables.auth == 'api-key'"
+      message: "a public route must declare platform.k8s-base/auth"
+      messageExpression: >-
+        request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
+        ' must carry the label platform.k8s-base/auth with one of none, jwt, api-key.' +
+        ' It is what selects the sec-ops SecurityPolicy for the route, so a route without it' +
+        ' would be served with no authentication class at all'
+      reason: Forbidden
+    - expression: >-
+        (variables.role == 'public-edge' && variables.auth != 'api-key') ||
+        (variables.role == 'partner-edge' && variables.auth == 'api-key')
+      message: "the auth class does not match the edge"
+      messageExpression: >-
+        request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
+        ' is labelled platform.k8s-base/auth=' + variables.auth + ' in a namespace whose' +
+        ' platform.k8s-base/role is ' + variables.role +
+        '. The public edge serves none and jwt; the partner edge serves api-key only'
+      reason: Forbidden
+    - expression: >-
+        !has(object.spec.hostnames) ||
+        object.spec.hostnames.all(h, h.endsWith(variables.suffix))
+      message: "a public route hostname must sit in the platform DNS zone"
+      messageExpression: >-
+        request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
+        ' claims a hostname outside the platform zone: every entry of spec.hostnames must end in ' +
+        variables.suffix
+      reason: Forbidden
+    - expression: >-
+        variables.role != 'partner-edge' ||
+        (has(object.spec.hostnames) && size(object.spec.hostnames) == 1)
+      message: "a partner route carries exactly one hostname"
+      messageExpression: >-
+        request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
+        ' must declare exactly one entry in spec.hostnames: the partner edge is fenced per partner,' +
+        ' and a route serving two partner hostnames shares one API key between them'
+      reason: Forbidden
+    - expression: >-
+        !has(object.spec.hostnames) ||
+        (variables.role == 'partner-edge'
+          ? object.spec.hostnames.all(h,
+              h.endsWith(variables.partnerSuffix) &&
+              size(h.split('.')) == variables.zoneLabels + 2 &&
+              h.split('.')[0] != '' && h.split('.')[0] != '*')
+          : object.spec.hostnames.all(h,
+              h == variables.apiHost ||
+              (variables.owner == 'platform' &&
+               size(h.split('.')) == variables.zoneLabels + 1 &&
+               (variables.redirectOnly || variables.platformBackendsOnly))))
+      message: "a public route hostname must belong to its edge's host class"
+      messageExpression: >-
+        request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
+        ' claims a hostname its edge does not serve. A route in a public-edge namespace serves ' +
+        variables.apiHost + ' -- every team API is a path prefix on the one public host -- or a' +
+        ' single-label hostname when it is owned by platform and every backend is one of (' +
+        params.data['publicBackendNamespaces'] + ') or it only redirects. A route in a' +
+        ' partner-edge namespace serves <partner>' + variables.partnerSuffix
+      reason: Forbidden
+    - expression: >-
+        !has(object.spec.rules) ||
+        object.spec.rules.all(r, !has(r.backendRefs) || r.backendRefs.all(b,
+          variables.publicBackends.exists(n, n == (has(b.namespace) ? b.namespace : request.namespace)) ||
+          (!variables.reservedPrefixes.exists(x, (has(b.namespace) ? b.namespace : request.namespace).startsWith(x)) &&
+           ((has(b.namespace) ? b.namespace : request.namespace) == variables.owner ||
+            (has(b.namespace) ? b.namespace : request.namespace).startsWith(variables.owner + '-')))))
+      message: "a public route may only reach its owner team's namespaces, or a namespace the platform opened for public backends"
+      messageExpression: >-
+        request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
+        ' is labelled platform.k8s-base/owner-team=' + variables.owner +
+        ' but a backendRef points elsewhere: every backend namespace must be ' + variables.owner +
+        ' or start with ' + variables.owner + '-, or be one of the platform namespaces opened for' +
+        ' public backends (' + params.data['publicBackendNamespaces'] + ')'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: public-route-owner
+spec:
+  policyName: public-route-owner
+  validationActions: [Deny]
+  paramRef:
+    name: platform-exposure-params
+    namespace: flux-system
+    parameterNotFoundAction: Deny
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: platform.k8s-base/role
+          operator: In
+          values: [public-edge, partner-edge]

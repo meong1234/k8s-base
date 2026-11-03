@@ -1,0 +1,29 @@
+---
+# `enableDefaultDeny: false` is what keeps this rule additive. A cluster-scoped
+# CCNP carrying an `egress:` section otherwise flips *every* pod it selects into
+# egress default-deny; the name reads like a deny, but the deny half of
+# "only platform-egress reaches the world" is enforced by the absence of any
+# `0.0.0.0/0` rule in the per-namespace team baseline, never by this object.
+# Writing it as an `egressDeny` instead would cut the platform's own image pulls.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: platform-egress-to-world
+spec:
+  endpointSelector:
+    matchLabels:
+      "io.kubernetes.pod.namespace": platform-egress
+  enableDefaultDeny:
+    egress: false
+    ingress: false
+  egress:
+    - toEntities:
+        - world
+    - toEndpoints:
+        - matchLabels:
+            "io.kubernetes.pod.namespace": kube-system
+            "k8s-app": kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY

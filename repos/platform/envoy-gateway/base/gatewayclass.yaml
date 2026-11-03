@@ -1,0 +1,10 @@
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: eg
+  labels:
+    app.kubernetes.io/part-of: platform
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  description: Envoy Gateway; platform-owned Gateways in platform-ingress

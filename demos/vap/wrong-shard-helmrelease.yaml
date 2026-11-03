@@ -1,0 +1,13 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: wrong-shard
+  namespace: team-a-apps
+  labels:
+    sharding.fluxcd.io/key: shard-2
+spec:
+  interval: 10m
+  serviceAccountName: flux
+  chartRef:
+    kind: OCIRepository
+    name: podinfo-chart

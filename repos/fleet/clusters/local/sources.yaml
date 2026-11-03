@@ -1,0 +1,40 @@
+---
+# The sources are per-environment, not part of base, because only their address
+# is a value: `insecure`, `provider` and the whole `verify` block are the shape
+# of this registry's trust, and a real registry needs a different shape rather
+# than a different string. Base refers to these by name, so the three names
+# `cluster-source`, `infra-source` and `platform-source` are the contract every
+# environment has to satisfy.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: infra-source
+  namespace: flux-system
+spec:
+  interval: 1m
+  provider: generic
+  insecure: true
+  url: oci://${OCI_REGISTRY}/infra
+  ref:
+    tag: ${OCI_TAG}
+  verify:
+    provider: cosign
+    secretRef:
+      name: cosign-pub-platform
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: platform-source
+  namespace: flux-system
+spec:
+  interval: 1m
+  provider: generic
+  insecure: true
+  url: oci://${OCI_REGISTRY}/platform
+  ref:
+    tag: ${OCI_TAG}
+  verify:
+    provider: cosign
+    secretRef:
+      name: cosign-pub-platform

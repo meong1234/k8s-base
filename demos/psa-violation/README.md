@@ -1,0 +1,3 @@
+What: a Deployment `privileged-oops` running busybox with `privileged: true` and `hostPID: true` — the only intentionally non-compliant manifest in the project.
+Attached to: team `team-a` (artifact `team-a-psa:demo`, signed with team-a's cosign key, demo-psa).
+Expected: the Deployment is created but its ReplicaSet cannot create Pods — `pods "privileged-oops-..." is forbidden: violates PodSecurity "restricted:latest": host namespaces (hostPID=true), privileged (container "oops" must not set securityContext.privileged=true), allowPrivilegeEscalation != false, unrestricted capabilities, runAsNonRoot != true, seccompProfile`; a matching warning is echoed on apply and the Kustomization never reaches a healthy state (`wait: true`).

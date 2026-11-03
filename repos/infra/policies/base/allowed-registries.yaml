@@ -1,0 +1,48 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: allowed-registries
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: [CREATE]
+        resources: [pods]
+  variables:
+    - name: registries
+      expression: "params.data['allowedRegistries'].split(',')"
+  validations:
+    - expression: >-
+        object.spec.containers.all(c, variables.registries.exists(r, c.image.startsWith(r)))
+        && (!has(object.spec.initContainers) ||
+            object.spec.initContainers.all(c, variables.registries.exists(r, c.image.startsWith(r))))
+        && (!has(object.spec.ephemeralContainers) ||
+            object.spec.ephemeralContainers.all(c, variables.registries.exists(r, c.image.startsWith(r))))
+      message: "image registry not in the platform allow-list"
+      messageExpression: >-
+        'image registry not in the platform allow-list. Images must start with one of: ' +
+        params.data['allowedRegistries'] +
+        ' (fully qualified names only -- a bare `busybox:1.37` is rejected)'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: allowed-registries
+spec:
+  policyName: allowed-registries
+  validationActions: [Deny]
+  paramRef:
+    name: platform-policy-params
+    namespace: flux-system
+    parameterNotFoundAction: Deny
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: platform.k8s-base/team
+          operator: Exists

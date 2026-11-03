@@ -1,0 +1,38 @@
+---
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: api-github-com
+  namespace: egress-allowlist
+  labels:
+    istio.io/use-waypoint: egress-waypoint
+    istio.io/use-waypoint-namespace: platform-egress
+spec:
+  hosts:
+    - api.github.com
+  location: MESH_EXTERNAL
+  ports:
+    - number: 443
+      name: https
+      protocol: TLS
+  resolution: DNS
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: api-github-com
+  namespace: egress-allowlist
+spec:
+  targetRefs:
+    - group: networking.istio.io
+      kind: ServiceEntry
+      name: api-github-com
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            namespaces:
+              - team-b-batch
+      to:
+        - operation:
+            ports: ["443"]

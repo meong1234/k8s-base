@@ -1,0 +1,5 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Issuers are environment-specific: the local CA lives in envs/local, a real
+# environment brings its own.
+resources: []
