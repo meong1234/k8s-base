@@ -15,5 +15,6 @@ cosign.key
 # Local scratch folder, never committed.
 /.ignore/
 
-# Built binaries from the warden Go module (make build / make manifests)
-/warden/bin/
+# Built binaries from the Go modules under tools/ (make build / make manifests)
+/tools/warden/bin/
+/tools/edge-authz/bin/

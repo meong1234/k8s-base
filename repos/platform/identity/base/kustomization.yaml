@@ -5,4 +5,4 @@ resources:
   - helmrelease.yaml
   - referencegrant-public-api.yaml
   - httproute-hubble-ui.yaml
-  - securitypolicy-hubble-oidc.yaml
+  - oauth2-proxy.yaml

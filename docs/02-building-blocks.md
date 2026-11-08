@@ -230,13 +230,14 @@ The platform also runs one special waypoint that is the only way out of the
 cluster to the internet. Every outbound call goes through it, it carries only
 listed hosts, and its log names the caller by that SPIFFE identity.
 
-## Gateway API and Envoy Gateway: traffic coming in
+## Gateway API on Istio: traffic coming in
 
 Gateway API is the Kubernetes standard for describing inbound traffic. A
 `Gateway` is a listener (a port, a hostname pattern, a certificate), and an
 `HTTPRoute` says "requests matching this host and path go to that Service".
-Envoy Gateway is the implementation that turns those objects into running
-Envoy proxies.
+Istio is the implementation: istiod renders each `Gateway` into a running
+Envoy Deployment, the same way it renders a waypoint, so the doors and the
+mesh share one control plane.
 
 Three objects from this family show up constantly:
 
@@ -248,10 +249,14 @@ Three objects from this family show up constantly:
   namespace may target my Service". Without it the route does not resolve.
   This is how the owning team keeps a veto over its own exposure.
 
-Envoy Gateway adds policy objects: a `SecurityPolicy` for authentication
-(JWT validation, API keys, CORS) and a `BackendTrafficPolicy` for rate
-limits. They attach to routes by label, which is how a route gets the right
-authentication class automatically.
+Istio's own policy objects do the rest, attached to the Gateway from its
+namespace: a `RequestAuthentication` validates JWTs, an `AuthorizationPolicy`
+demands one (or, as `CUSTOM`, hands the request to an external authorizer:
+the partner API-key check and the Hubble UI login), and an `EnvoyFilter`
+carries the rate limit Istio has no API of its own for. CORS is a filter on
+the route. Because the policies attach to the door rather than to a route,
+a new route is covered by default: the JWT policy is fail-closed and the
+rate limit is Gateway-wide.
 
 ## ValidatingAdmissionPolicy: rules the API server enforces itself
 
@@ -330,7 +335,7 @@ replace it without touching the policies around it.
   what runs            git ──▶ OCI artifact + cosign ──▶ Flux, as the team's SA
   secrets              SOPS/age in git, decrypted only in the cluster
   who may talk         Cilium NetworkPolicy (namespaces)  +  Istio ambient (identities, paths)
-  in and out           Gateway API on Envoy  +  one egress waypoint
+  in and out           Gateway API on Istio  +  one egress waypoint
   for an hour          AccessRequest ──▶ approval ──▶ warden ──▶ timed binding
 ```
 

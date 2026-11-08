@@ -5,4 +5,4 @@ kind: Kustomization
 # any of it, so these cannot share a Kustomization with their own CRDs.
 resources:
   - ../../../mesh-config/envs/local
-  - ../../../proxies/envs/local
+  - ../../../edge-policies/envs/local

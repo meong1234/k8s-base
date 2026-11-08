@@ -8,12 +8,7 @@ metadata:
     app.kubernetes.io/part-of: platform
     platform.k8s-base/gateway-scope: partner
 spec:
-  gatewayClassName: eg
-  infrastructure:
-    parametersRef:
-      group: gateway.envoyproxy.io
-      kind: EnvoyProxy
-      name: partner
+  gatewayClassName: istio
   listeners:
     - name: https
       protocol: HTTPS

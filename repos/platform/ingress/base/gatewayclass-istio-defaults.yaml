@@ -1,0 +1,42 @@
+---
+# Every Gateway of class `istio` is rendered by istiod from one template; this
+# ConfigMap overlays that template (strategic merge, one ConfigMap per class, root
+# namespace only). A per-Gateway `infrastructure.parametersRef` would merge on top.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio-gateway-class-defaults
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: platform
+    gateway.istio.io/defaults-for-class: istio
+  annotations:
+    # `$patch` below is a strategic-merge directive, not a Flux variable. Without
+    # this, postBuild substitution blanks it and port 15021 survives.
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+data:
+  # istiod puts `status-port` 15021 on every generated Service. The readiness
+  # probe hits 15021 on the pod directly, so the Service entry is unused -- and
+  # under k3s servicelb two LoadBalancer Services sharing a port are two svclb
+  # DaemonSets fighting for the same hostPort on every node; the loser never
+  # gets an address and its Gateway is never Programmed.
+  service: |
+    spec:
+      ports:
+        - "$patch": delete
+          port: 15021
+  # The template sizes the container from istiod's global.proxy.resources, which
+  # is tuned for a waypoint. The ingress proxies keep the numbers they had.
+  deployment: |
+    spec:
+      replicas: 1
+      template:
+        spec:
+          containers:
+            - name: istio-proxy
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 256Mi

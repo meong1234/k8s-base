@@ -8,7 +8,7 @@
 ## What you get
 
 A three-node k3d cluster (one server, two agents) running inside Docker,
-with Cilium as the network layer, Istio in ambient mode, three Envoy
+with Cilium as the network layer, Istio in ambient mode and its three ingress
 gateways, Dex, cert-manager, Flux with two shards, four tenant teams, the
 security team's three edge namespaces, the access warden, and beside the
 cluster an nginx container playing a partner that demands a client

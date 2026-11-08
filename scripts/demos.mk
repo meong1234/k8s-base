@@ -676,14 +676,14 @@ demo-partner-egress-cleanup: demo-guard
 
 demo-exposure: demo-guard
 	@$(call demo_begin,exposure,one public host with one path prefix per team: exposure takes the platform the sec-ops team and the owning team and no one can shortcut it); \
-	run 'kubectl get gatewayclass eg -o jsonpath={.status.conditions[0].type}={.status.conditions[0].status}; echo'; \
+	run 'kubectl get gatewayclass istio -o jsonpath={.status.conditions[0].type}={.status.conditions[0].status}; echo'; \
 	run 'cond "" clusterissuer local-ca Ready'; \
 	run 'cond platform-ingress gateway.gateway.networking.k8s.io public Programmed'; \
 	run 'kubectl get ns -L platform.k8s-base/role | grep -E "NAME|public-api|egress-allowlist"'; \
-	run 'kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=public'; \
+	run 'kubectl -n platform-ingress get svc -l gateway.networking.k8s.io/gateway-name=public'; \
 	run 'kubectl -n flux-system get cm -l platform.k8s-base/registry=api-paths -o jsonpath="{range .items[*]}{.data.team}={.data.paths}{\"\n\"}{end}"'; \
 	run 'kubectl -n public-api get httproute -L platform.k8s-base/owner-team,platform.k8s-base/auth'; \
-	expect 'Accepted=True' 'the GatewayClass is Accepted'; \
+	expect 'Accepted=True' 'the istio GatewayClass is Accepted: the control plane that runs the waypoints renders the doors too'; \
 	expect 'True ' 'the local CA ClusterIssuer is Ready'; \
 	expect 'public-api .* public-edge' 'public-edge is stamped on public-api'; \
 	expect_not 'egress-allowlist .* public-edge' 'and on nothing else'; \
@@ -701,9 +701,9 @@ demo-exposure: demo-guard
 	run '$(call edge_curl,-D - -o /dev/null,/podinfo/api/info) | grep -iE "^HTTP|strict-transport|x-content-type|x-frame|referrer-policy|x-ratelimit"'; \
 	expect 'podinfo=200' '200 on api.local-dev.test/podinfo, with the local CA verified by curl'; \
 	expect '"hostname": "podinfo' 'and the real podinfo payload, so the URLRewrite handed /api/info to the backend'; \
-	expect 'orders=401' 'team-b s /orders prefix is routed from the same host by its own route -- a 401 from the sec-ops JWT policy and not a 404 is the proof that longest-prefix selection works across separate HTTPRoutes'; \
-	expect 'catalog=401' 'and so is team-a s second prefix /catalog; both are secured, so demo-public-auth is where they return 200'; \
-	expect 'unallocated=404' 'a prefix nobody was allocated is a 404 from Envoy: no route claims it'; \
+	expect 'orders=403' 'team-b s /orders prefix is routed from the same host by its own route -- a 403 from the sec-ops require-jwt policy and not a 404 is the proof that longest-prefix selection works across separate HTTPRoutes'; \
+	expect 'catalog=403' 'and so is team-a s second prefix /catalog; both are secured, so demo-public-auth is where they return 200'; \
+	expect 'unallocated=403' 'a prefix nobody was allocated is a 403, not a 404: the door is closed by default, and the gateway does not even say whether a route exists there'; \
 	expect 'strict-transport-security' 'the sec-ops security headers survive next to the URLRewrite filter'; \
 	expect 'x-ratelimit-limit' 'and so do the sec-ops rate-limit headers'; \
 	section 'the rate limit is the sec-ops floor and no team can raise it'; \
@@ -724,6 +724,8 @@ demo-exposure: demo-guard
 	run 'kubectl -n team-a-apps delete referencegrant allow-public-api'; \
 	wait_for 90 'the route to stop resolving' \
 	  'kubectl -n public-api get httproute team-a-podinfo -o jsonpath="{.status.parents[0].conditions[?(@.type==\"ResolvedRefs\")].status}" | grep -qx False'; \
+	wait_for 60 'the proxy to drop the backend (istiod writes the status a few seconds before it pushes the route)' \
+	  '$(call edge_curl,-o /dev/null -w "%{http_code}",/podinfo/api/info) | grep -qx 500'; \
 	run '$(call edge_curl,-o /dev/null -w "no-consent=%{http_code}\n",/podinfo/api/info)'; \
 	expect 'no-consent=500' 'pulling the ReferenceGrant takes the prefix offline with a 500, not a network drop'; \
 	run 'flux -n team-a reconcile kustomization team-a --with-source'; \
@@ -744,7 +746,7 @@ demo-exposure: demo-guard
 	expect 'must carry the label platform.k8s-base/auth' 'public-route-owner refuses a public route that does not say whether it is open or secured'; \
 	expect 'team-a-claims-orders is labelled .*teams.yaml apiPaths' 'api-path-owner refuses a team-a route claiming team-b s /orders prefix'; \
 	expect 'The public edge serves none and jwt' 'public-route-owner refuses an api-key route on the public edge: that class belongs to the partner edge'; \
-	finish '200 with the real payload and the sec-ops headers on api.local-dev.test/podinfo, every team prefix routed from the one host with the two secured ones answering 401 without a token and an unallocated prefix a 404, 429 after the budget, SourceVerified=False for a sec-ops artifact signed by a team, 500 once the ReferenceGrant is pulled, and seven admission denials'
+	finish '200 with the real payload and the sec-ops headers on api.local-dev.test/podinfo, every team prefix routed from the one host with the two secured ones answering 403 without a token and an unallocated prefix a 403 too, 429 after the budget, SourceVerified=False for a sec-ops artifact signed by a team, 500 once the ReferenceGrant is pulled, and seven admission denials'
 
 demo-exposure-cleanup: demo-guard
 	@echo "==> cleanup: restoring team-a's ReferenceGrant and the sec-ops artifact"
@@ -755,21 +757,19 @@ demo-exposure-cleanup: demo-guard
 
 demo-public-auth: demo-guard
 	@$(call demo_begin,public-auth,a secured prefix takes a Dex token minted for the public API and an open prefix takes none); \
-	section 'one SecurityPolicy per class, and every route is in exactly one of them'; \
-	run 'kubectl -n public-api get securitypolicy'; \
-	run 'printf "none: "; kubectl -n public-api get securitypolicy public-edge-none -o jsonpath="{range .status.ancestors[*]}{range .conditions[*]}{.type}={.status}({.reason}) {end}{end}"; echo'; \
-	run 'printf "jwt: "; kubectl -n public-api get securitypolicy public-edge-jwt -o jsonpath="{range .status.ancestors[*]}{range .conditions[*]}{.type}={.status}({.reason}) {end}{end}"; echo'; \
+	section 'the edge policies attach to the public Gateway, in its namespace, applied by the sec-ops identity'; \
+	run 'kubectl -n platform-ingress get requestauthentication,authorizationpolicy,envoyfilter -l platform.k8s-base/team=team-sec-ops'; \
+	run 'kubectl -n platform-ingress get authorizationpolicy public-edge-require-jwt -o jsonpath="{.spec.action} {.spec.rules[0].to[0].operation.notPaths}"; echo'; \
 	run 'kubectl -n public-api get httproute -L platform.k8s-base/auth'; \
-	run 'kubectl -n platform-identity get referencegrant allow-public-api-to-dex -o jsonpath="{range .spec.from[*]}{.kind} {end}"; echo'; \
-	expect 'none: Accepted=True' 'the open class policy is accepted by the public Gateway'; \
-	expect 'jwt: Accepted=True' 'and so is the secured one, so the cross-namespace JWKS backendRef resolved'; \
-	expect_not 'Conflicted' 'no route is claimed by both policies: the auth label partitions them'; \
-	expect 'SecurityPolicy' 'the ReferenceGrant in platform-identity consents to the JWKS fetch as well as to the Dex route'; \
+	expect 'public-edge-jwt' 'the RequestAuthentication that validates Dex tokens is on the Gateway'; \
+	expect 'public-edge-require-jwt' 'and so is the DENY policy that demands one'; \
+	expect 'public-edge-ratelimit' 'and the rate limit, all three carrying the sec-ops team label Flux stamps on what that identity applies'; \
+	expect 'DENY \["/podinfo","/podinfo/\*"\]' 'the open prefix is the one listed in notPaths; every other prefix on the host is closed the moment it is merged'; \
 	section 'the secured prefix is closed to anyone without a token'; \
 	run '$(call edge_curl,-o /dev/null -w "no-token=%{http_code}\n",/orders/api/info)'; \
 	run '$(call edge_curl,-o /dev/null -w "garbage-token=%{http_code}\n" -H "Authorization: Bearer not-a-jwt",/orders/api/info)'; \
-	expect 'no-token=401' 'no Authorization header is a 401 at the edge and the backend never sees the request'; \
-	expect 'garbage-token=401' 'and an unverifiable token is the same 401'; \
+	expect 'no-token=403' 'no Authorization header is a 403 from the require-jwt policy at the edge, and the backend never sees the request'; \
+	expect 'garbage-token=401' 'and an unverifiable token is a 401 from the JWT filter itself: no credential is refused by authorization, a bad one by authentication'; \
 	section 'a cluster-login token is not an API credential: the audience is the fence'; \
 	KUBE_TOKEN=$$(curl -sS --cacert $(CA_BUNDLE) --resolve $(DEX_HOST):$(DEX_PORT):127.0.0.1 \
 	  -u $(DEX_CLIENT_ID):$$(cat $(DEX_CLIENT_FILE)) \
@@ -779,7 +779,7 @@ demo-public-auth: demo-guard
 	run '$(call edge_curl,-o /dev/null -w "kube-token=%{http_code}\n" -H "Authorization: Bearer $$KUBE_TOKEN",/orders/api/info)'; \
 	run '$(call edge_curl,-D - -o /dev/null -H "Authorization: Bearer $$KUBE_TOKEN",/orders/api/info) | grep -iE "^HTTP|www-authenticate"'; \
 	expect '"aud":"kubernetes"' 'the same password grant against the kubernetes client mints a token for the cluster, not for the API'; \
-	expect 'kube-token=403' 'carol s own kubelogin token is refused: Dex signed it and the edge verified the signature, but for aud kubernetes, and a verified token with the wrong audience is a 403 rather than the 401 an unverifiable one gets'; \
+	expect 'kube-token=403' 'carol s own kubelogin token is refused: Dex signed it and the edge verified the signature, but for aud kubernetes; a verified credential at the wrong door is a 403 from the JWT filter, told apart from the no-token 403 by its www-authenticate header'; \
 	expect 'error="invalid_token"' 'and the edge says so in www-authenticate, so the audience is demonstrably the fence'; \
 	section 'a token minted for the public API opens it, and the backend learns who called'; \
 	TOKEN=$$($(MAKE) -s --no-print-directory api-token USER=carol@team-b.local PASS=carol$(DEMO_PW_SUFFIX)); \
@@ -787,25 +787,27 @@ demo-public-auth: demo-guard
 	run '$(call edge_curl,-o /dev/null -w "api-token=%{http_code}\n" -H "Authorization: Bearer $$TOKEN",/orders/api/info)'; \
 	run '$(call edge_curl,-H "Authorization: Bearer $$TOKEN",/orders/headers) | tr -d " \n" | tr "A-Z" "a-z"; echo'; \
 	expect '"aud":"public-api"' 'the password grant against the public-api client mints a token for that audience'; \
-	expect 'api-token=200' 'and the same request that was a 401 is now a 200'; \
+	expect 'api-token=200' 'and the same request that was a 403 is now a 200'; \
 	expect 'x-user-email.{0,8}carol@team-b.local' 'the email claim reached the backend as x-user-email, so the API knows its caller without parsing a token'; \
-	expect '"groups":null' 'and no x-user-groups, because Dex s local connector emits no groups claim for a static password: the claimToHeaders entry is correct the day a real connector does, and a missing claim is an omitted header rather than a 401'; \
+	expect '"groups":null' 'and no x-user-groups, because Dex s local connector emits no groups claim for a static password: the outputClaimToHeaders entry is correct the day a real connector does, and a missing claim is an omitted header rather than a 401'; \
 	section 'the open prefix is still open, CORS and all'; \
 	run '$(call edge_curl,-o /dev/null -w "podinfo-no-token=%{http_code}\n",/podinfo/api/info)'; \
 	run '$(call edge_curl,-D - -o /dev/null -X OPTIONS -H "Origin: https://app.local-dev.test" -H "Access-Control-Request-Method: GET",/podinfo/) | grep -iE "^HTTP|access-control"'; \
-	expect 'podinfo-no-token=200' 'auth none means no token, and splitting the policy in two did not close the open class'; \
-	expect 'access-control-allow-origin' 'CORS is still attached to the open class by its own SecurityPolicy'; \
-	finish '401 on /orders with no token and with an unverifiable one, 403 with a kubernetes-audience token, 200 with a public-api token for carol and x-user-email at the backend, and /podinfo still 200 with CORS and no token at all'
+	expect 'podinfo-no-token=200' 'auth none means no token: the prefix is in the DENY policy s notPaths'; \
+	expect 'access-control-allow-origin' 'CORS is a filter on the route itself, and admission refuses a public route that reaches a backend without one'; \
+	finish '403 on /orders with no token, 401 with an unverifiable one, 403 again with a kubernetes-audience token, 200 with a public-api token for carol and x-user-email at the backend, and /podinfo still 200 with CORS and no token at all'
 
 demo-partner-api: demo-guard
 	@$(call demo_begin,partner-api,a partner enters through its own gateway port and certificate with its own key set and its own rate limit); \
 	run 'cond platform-ingress gateway.gateway.networking.k8s.io partner Programmed'; \
-	run 'kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=partner'; \
-	run 'kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=public'; \
+	run 'kubectl -n platform-ingress get svc -l gateway.networking.k8s.io/gateway-name=partner'; \
+	run 'kubectl -n platform-ingress get svc -l gateway.networking.k8s.io/gateway-name=public'; \
 	run 'kubectl get ns partner-api -L platform.k8s-base/role'; \
 	run 'kubectl -n platform-ingress get certificate partners-wildcard -o jsonpath="{.spec.dnsNames} {.status.conditions[?(@.type==\"Ready\")].status}"; echo'; \
 	run 'kubectl -n partner-api get httproute -L platform.k8s-base/owner-team,platform.k8s-base/auth'; \
-	run 'kubectl -n partner-api get securitypolicy,backendtrafficpolicy,secret'; \
+	run 'kubectl -n partner-api get secret -o name'; \
+	run 'kubectl -n platform-ingress get authorizationpolicy partner-edge-api-key -o jsonpath="{.spec.action} {.spec.provider.name}"; echo'; \
+	run 'kubectl -n platform-ingress get envoyfilter -l platform.k8s-base/team=team-sec-ops'; \
 	run 'kubectl -n team-b-apps get referencegrant allow-public-api -o jsonpath="{range .spec.from[*]}{.namespace}{\" \"}{end}"; echo'; \
 	expect 'True (Address assigned|Resource programmed)' 'the partner Gateway is Programmed'; \
 	expect 'partner.*LoadBalancer.*9443:[0-9]+/TCP' 'on its own LoadBalancer Service listening on 9443, because servicelb binds one host port per Service'; \
@@ -815,6 +817,8 @@ demo-partner-api: demo-guard
 	expect 'partner-a .* team-b +api-key' 'the partner route names the backend s team as owner, not sec-ops, and declares auth=api-key'; \
 	expect 'partner-b .* team-b +api-key' 'and so does the second partner'; \
 	expect 'secret/partner-a-keys' 'the key Secret reached the cluster only through SOPS decryption by the sec-ops Flux identity'; \
+	expect 'CUSTOM edge-authz' 'every request on the partner Gateway is checked by edge-authz, which reads that Secret, before anything is routed'; \
+	expect 'partner-a-ratelimit' 'and each partner s rate limit is its own EnvoyFilter on the Gateway, applied by sec-ops'; \
 	expect 'public-api partner-api' 'the owning team consented to each edge namespace separately'; \
 	section 'no key, the wrong key, and the partner s own key'; \
 	run '$(call partner_curl,partner-a,-o /dev/null -w "no-key=%{http_code}\n",/v1/orders/api/info)'; \
@@ -838,7 +842,7 @@ demo-partner-api: demo-guard
 	run '$(call partner_curl,partner-a,-D - -o /dev/null -H "x-api-key: $$(cat $(PARTNER_KEY_DIR)/partner-a-prod.key)",/v1/orders/api/info) | grep -iE "^HTTP|x-ratelimit-limit"'; \
 	run '$(call partner_curl,partner-b,-D - -o /dev/null -H "x-api-key: $$(cat $(PARTNER_KEY_DIR)/partner-b-prod.key)",/v1/orders/api/info) | grep -iE "^HTTP|x-ratelimit-limit"'; \
 	expect 'x-ratelimit-limit: 100' 'partner-a is served its contractual 100 per minute'; \
-	expect 'x-ratelimit-limit: 50' 'and partner-b its own 50, from a BackendTrafficPolicy attached to that one route'; \
+	expect 'x-ratelimit-limit: 50' 'and partner-b its own 50, from an EnvoyFilter scoped to that one partner s virtual host'; \
 	section 'no shortcuts, at admission'; \
 	run 'sed s/__DOMAIN__/$(CLUSTER_DOMAIN)/g demos/partner/partner-route-on-public.yaml | kubectl --as=system:serviceaccount:team-sec-ops:flux -n public-api apply -f -'; \
 	run 'sed s/__DOMAIN__/$(CLUSTER_DOMAIN)/g demos/partner/jwt-route-on-partner.yaml | kubectl --as=system:serviceaccount:team-sec-ops:flux -n partner-api apply -f -'; \
@@ -957,16 +961,17 @@ demo-internal-oidc: demo-guard
 	run "kubectl -n platform-identity get httproute hubble-ui -o jsonpath='{range .status.parents[0].conditions[*]}{.type}={.status} {end}'; echo"; \
 	expect 'Accepted=True' 'the internal Gateway accepted the route'; \
 	expect 'ResolvedRefs=True' 'and the ReferenceGrant in kube-system resolved the backend'; \
-	run "kubectl -n platform-identity get securitypolicy hubble-ui-oidc -o jsonpath='{range .status.ancestors[0].conditions[*]}{.type}={.status} {end}'; echo"; \
-	expect 'Accepted=True' 'Envoy Gateway accepted the OIDC SecurityPolicy'; \
+	run "kubectl -n platform-ingress get authorizationpolicy internal-edge-hubble-oidc -o jsonpath='{.spec.action} {.spec.provider.name} {.spec.rules[0].to[0].operation.hosts[0]}'; echo"; \
+	expect 'CUSTOM oauth2-proxy hubble.internal' 'the internal Gateway hands the hubble host to oauth2-proxy before routing anything'; \
 	section 'an unauthenticated request is redirected to Dex'; \
-	SVC=$$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=internal -o jsonpath='{.items[0].metadata.name}'); \
-	printf '\n$$ kubectl -n envoy-gateway-system port-forward svc/%s 8444:443 &\n' "$$SVC"; \
-	kubectl -n envoy-gateway-system port-forward svc/$$SVC 8444:443 >$(DEMO_OUT_DIR)/internal-pf.log 2>&1 & \
+	SVC=$$(kubectl -n platform-ingress get svc -l gateway.networking.k8s.io/gateway-name=internal -o jsonpath='{.items[0].metadata.name}'); \
+	printf '\n$$ kubectl -n platform-ingress port-forward svc/%s 8444:443 &\n' "$$SVC"; \
+	kubectl -n platform-ingress port-forward svc/$$SVC 8444:443 >$(DEMO_OUT_DIR)/internal-pf.log 2>&1 & \
 	_pf=$$!; sleep 8; \
 	run "curl -s -o /dev/null -D - --cacert $(CA_BUNDLE) --resolve $(HUBBLE_HOST):8444:127.0.0.1 https://$(HUBBLE_HOST):8444/"; \
 	expect 'HTTP/[0-9.]+ 302' '302, not 200: the UI sits behind a login'; \
 	expect 'dex.local-dev.test:8443/auth' 'redirected to Dex, the browser-facing issuer'; \
+	expect '_hubble_oauth2_csrf' 'and the CSRF cookie the callback leg will check travels with the redirect'; \
 	kill $$_pf 2>/dev/null || true; \
 	section 'and no human held a port-forward right to get there'; \
 	$(demo_logins); \

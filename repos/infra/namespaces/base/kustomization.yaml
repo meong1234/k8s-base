@@ -3,7 +3,6 @@ kind: Kustomization
 resources:
   - istio-system.yaml
   - cert-manager.yaml
-  - envoy-gateway-system.yaml
   - platform-ingress.yaml
   - platform-identity.yaml
   - platform-access.yaml

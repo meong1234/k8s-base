@@ -54,37 +54,38 @@ browser-facing port. On `local` they resolve to
 | `base/routes/team-b-orders.yaml` | `HTTPRoute team-b-orders` | `api.${CLUSTER_DOMAIN}/orders` → `podinfo` in `team-b-apps`, `auth: jwt` |
 | `base/routes/platform-dex.yaml` | `HTTPRoute platform-dex` | `dex.${CLUSTER_DOMAIN}` → `dex` in `platform-identity`; arrived as a PR from the platform team. `platform-identity` is the one namespace in `publicBackendNamespaces` |
 | `base/routes/https-redirect.yaml` | `HTTPRoute https-redirect` | the `http` listener's only route: 301 to `https` on `${PUBLIC_PORT}`. No backend, so `public-route-owner` lets it keep the `*.${CLUSTER_DOMAIN}` wildcard |
-| `base/policies/ratelimit.yaml` | `BackendTrafficPolicy public-edge` | local rate limit, 20 requests per minute per distinct client IP, with `xRateLimitHeaders: DraftVersion03` |
-| `base/policies/security-none.yaml` | `SecurityPolicy public-edge-none` | CORS, on the routes labelled `platform.k8s-base/auth: none` |
-| `base/policies/security-jwt.yaml` | `SecurityPolicy public-edge-jwt` | the same CORS block plus the Dex JWT provider (`aud: public-api`, JWKS fetched from `platform-identity/dex:5556`, `email` and `groups` forwarded as `x-user-email` and `x-user-groups`), on the routes labelled `platform.k8s-base/auth: jwt` |
+| `base/edge-policies/request-authentication.yaml` | `RequestAuthentication public-edge-jwt` in `platform-ingress` | the Dex JWT provider on the public Gateway: `aud: public-api`, JWKS fetched by istiod from `dex.platform-identity.svc:5556`, `email` and `groups` forwarded as `x-user-email` and `x-user-groups` |
+| `base/edge-policies/authorization-require-jwt.yaml` | `AuthorizationPolicy public-edge-require-jwt` in `platform-ingress` | `DENY` every request on `api.${CLUSTER_DOMAIN}` port 443 without a verified token, except the `notPaths` prefixes (the open ones) and `OPTIONS` preflights |
+| `base/edge-policies/ratelimit.yaml` | `EnvoyFilter public-edge-ratelimit` in `platform-ingress` | local rate limit, 20 requests per minute per distinct client address, draft-03 `x-ratelimit-*` headers, across the whole Gateway |
 
-All three policies attach by `targetSelectors`. The rate limit selects
-`platform.k8s-base/public-route: "true"` alone, which `base/kustomization.yaml`
-stamps on every object, so it covers every public route
-whatever its class. The two `SecurityPolicy` objects select that label **plus**
-`platform.k8s-base/auth`, one per class: Gateway API allows only one policy of a
-kind per target, so one CORS-and-JWT policy over every route is not expressible
-and the `auth` label is what partitions them. A new route is therefore rate
-limited, CORS-fenced and in exactly one auth class the moment it is merged —
-there is no "forgot the policy" state, no route in both classes, and a team
-cannot weaken any of the three because a team cannot write in this namespace.
-The CORS block is duplicated between the two files; that is the price of
-per-class selection, and it is cheaper than a merge mechanism this API version
-may not honour.
+**The policies live next to the Gateway, not next to the routes.** Istio
+attaches `RequestAuthentication`, `AuthorizationPolicy` and `EnvoyFilter` to a
+Gateway only from the Gateway's own namespace, so the three files above carry
+`namespace: platform-ingress` and this unit's `kustomization.yaml` has no
+`namespace:` transformer — it would rewrite them to `public-api`, where they
+are accepted and attach to nothing. The sec-ops Flux identity holds a Role in
+`platform-ingress` for exactly those three kinds
+(`repos/platform/ingress/base/rbac-secops-edge-policies.yaml`). The platform
+owns the door; sec-ops owns the rules on it; a team can write neither.
 
-Envoy Gateway policies are *local*: `targetRefs` has no `namespace` field, so a
-policy here cannot name `platform-ingress/public` directly. Selecting this
-namespace's routes is the same guarantee one level down. Gateway API also allows
-only one policy of a kind per target.
+**A route is covered the moment it is merged, by construction rather than by
+label.** The rate limit is Gateway-wide. The DENY policy is fail-closed: every
+prefix on the public host needs a token unless it is listed in `notPaths`, so
+a new `jwt` route is secured with no edit anywhere, and a new `none` route is
+*closed* until its prefix is added to `notPaths` — the `auth` label on the
+route and the `notPaths` entry are reviewed together. CORS is the one thing a
+Gateway-scoped policy cannot express, so it is a Gateway API `CORS` filter on
+every route that reaches a backend, and `public-route-owner` refuses a route
+without one. The `platform.k8s-base/public-route` label the kustomization
+stamps is for the operator (`kubectl get httproute -l`), not for attachment.
 
 **The security response headers are a route filter, not a policy.** The first
-version put them in the `BackendTrafficPolicy` as a `responseOverride` with only
-a `header` block, which is the only Gateway-scoped response-header writer the
-v1.9 API has — and on a running proxy it **replaces the response body with an
-empty one and drops `Content-Type`**: a 200 came back with `size=0`. They are a
-`ResponseHeaderModifier` filter on each route now. Still sec-ops-owned, still
-unweakenable by a team, one attachment level further down; the cost is that a new
-route needs the filter copied in, so it is the first item on the checklist.
+version put them in a Gateway-scoped response override, which on a running
+proxy replaced the response body with an empty one and dropped `Content-Type`.
+They are a `ResponseHeaderModifier` filter on each route, like CORS: still
+sec-ops-owned, still unweakenable by a team, one attachment level further
+down; the cost is that a new route needs both filters copied in, so they are
+on the checklist.
 
 ## The real flow
 
@@ -92,7 +93,7 @@ In a company repo this directory is behind CODEOWNERS:
 
 ```
 /edges/public-api/base/routes/   @company/sec-ops
-/edges/public-api/base/policies/ @company/sec-ops
+/edges/public-api/base/edge-policies/ @company/sec-ops
 ```
 
 1. The owning team opens a PR adding one file under `base/routes/`, and a second PR
@@ -131,40 +132,44 @@ Before merging a file under `base/routes/`:
       have to know its public prefix.
 - [ ] **Auth class declared.** `metadata.labels['platform.k8s-base/auth']` is
       `none` for an open API or `jwt` for one behind a Dex token.
-      `public-route-owner` denies a route without it, and the label is what
-      selects the `SecurityPolicy` — a route cannot end up with no class.
-      `api-key` belongs to the partner edge and is denied here.
-      `none` gets `base/policies/security-none.yaml` (CORS only). `jwt` gets
-      `base/policies/security-jwt.yaml`: every request must carry
+      `public-route-owner` denies a route without it. `api-key` belongs to the
+      partner edge and is denied here.
+      `jwt` needs no other edit: every request on the host must carry
       `Authorization: Bearer <id_token>` issued by Dex for the **`public-api`**
-      client, or the edge answers 401 before the backend is consulted. A token
-      for any other client — a developer's `kubernetes` kubelogin token included
-      — is refused as well, because the provider pins `audiences: [public-api]`;
-      that one is a **403**, not a 401, because Envoy verified the signature and
-      then rejected the audience.
+      client, or the edge answers before the backend is consulted — **403**
+      `RBAC: access denied` with no token (the DENY policy), **401** with a token
+      it cannot verify (the JWT filter), and **403** again with a token it
+      verified but that was minted for another client, a developer's
+      `kubernetes` kubelogin token included, because the provider pins
+      `audiences: [public-api]`; that 403 carries `www-authenticate: …
+      error="invalid_token"`, which the no-token 403 does not.
+      `none` needs the prefix added to `notPaths` in
+      `base/edge-policies/authorization-require-jwt.yaml`, as the client sends
+      it (`/podinfo` and `/podinfo/*`); until then the route is live and closed.
+      The label and the `notPaths` entry are one review.
       The verified `email` and `groups` claims arrive at the backend as
       `x-user-email` and `x-user-groups`, so a secured API reads its caller from
-      a header and never parses a token. Dex's local connector emits no `groups`
-      claim for a static password, so on this cluster only `x-user-email`
-      arrives; a missing claim is an omitted header, not a 401. Mint one for the
-      demo users with
+      a header and never parses a token; a client cannot pre-set either, because
+      the Gateway strips both before the JWT filter writes them. Dex's local
+      connector emits no `groups` claim for a static password, so on this
+      cluster only `x-user-email` arrives; a missing claim is an omitted header,
+      not an error. Mint one for the demo users with
       `make api-token USER=carol@team-b.local PASS=carol-local-dev`
       (`make login-help` lists the passwords); it is valid for 10 minutes.
-      Changing a merged route's class moves it between the two policies with no
-      other edit, which is the point of the label.
 - [ ] **Backend belongs to the owner.** Every `backendRefs` namespace is the owner
       team's, or one of the namespaces the platform opened for public backends
       (`platform-identity`, for Dex). Reserved prefixes — `platform-`, `flux-`,
-      `kube-`, `istio-`, `cert-manager`, `envoy-gateway-`
-      — are denied by admission even with the right label.
+      `kube-`, `istio-`, `cert-manager` — are denied by admission even with the
+      right label.
 - [ ] **Consent exists.** A `ReferenceGrant` in the backend namespace names this
       namespace as `from` and that Service as `to`. Check the team's PR, not
       their word:
       `kubectl -n <backend-ns> get referencegrant -o yaml`.
-- [ ] **Policies cover it.** The route carries
-      `platform.k8s-base/public-route: "true"` (the kustomization stamps it — do
-      not override `metadata.labels` in a way that drops it) so both edge
-      policies select it.
+- [ ] **CORS filter present.** Every rule with `backendRefs` carries the
+      `type: CORS` filter, copied from an existing route; `public-route-owner`
+      denies the route without it. The redirect-only route is exempt.
+- [ ] **Security headers present.** The `ResponseHeaderModifier` filter, copied
+      from an existing route.
 - [ ] **parentRef is the `public` Gateway with `sectionName: https`.** A route
       without a `sectionName` also attaches to the `http` listener and would be
       served in plaintext.

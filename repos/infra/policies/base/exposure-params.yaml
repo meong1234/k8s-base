@@ -18,4 +18,4 @@ data:
 
   publicBackendNamespaces: "platform-identity"
 
-  reservedNamespacePrefixes: "platform-,flux-,kube-,istio-,cert-manager,envoy-gateway-,default"
+  reservedNamespacePrefixes: "platform-,flux-,kube-,istio-,cert-manager,default"

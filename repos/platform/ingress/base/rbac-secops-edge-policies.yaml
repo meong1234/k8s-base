@@ -1,0 +1,36 @@
+---
+# team-sec-ops owns what the edges enforce; the platform owns the edges. Istio
+# attaches RequestAuthentication, AuthorizationPolicy and EnvoyFilter to a
+# Gateway only from the Gateway's own namespace, so the sec-ops Flux identity
+# gets exactly those three kinds here and nothing else: no Gateways, no
+# Secrets, no Deployments.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: secops-edge-policies
+  namespace: platform-ingress
+  labels:
+    app.kubernetes.io/part-of: platform
+rules:
+  - apiGroups: [security.istio.io]
+    resources: [requestauthentications, authorizationpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.istio.io]
+    resources: [envoyfilters]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: secops-edge-policies
+  namespace: platform-ingress
+  labels:
+    app.kubernetes.io/part-of: platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: secops-edge-policies
+subjects:
+  - kind: ServiceAccount
+    name: flux
+    namespace: team-sec-ops

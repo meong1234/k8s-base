@@ -7,12 +7,13 @@ namespaces — the three edges of the cluster:
 | Namespace | Contents | Epic |
 | --- | --- | --- |
 | `egress-allowlist` | one `ServiceEntry` + `AuthorizationPolicy` pair per external host a team may call, plus a `DestinationRule` where the waypoint originates the TLS | H3, X3 |
-| `public-api` | the `HTTPRoute`s the public Gateway accepts — one path prefix per team on the one public host — and the edge policies teams cannot weaken, one `SecurityPolicy` per auth class | H4, X0, X1 |
-| `partner-api` | one directory per business partner: the route the partner Gateway accepts, its API-key policy and its rate limit — plus, from the environment's `envs/<env>/`, the roster that says which of them are onboarded here and their key Secrets | X2, P1 |
+| `public-api` | the `HTTPRoute`s the public Gateway accepts — one path prefix per team on the one public host. The edge policies teams cannot weaken (JWT, the fail-closed DENY, the rate limit) are this unit's files too, applied into `platform-ingress` where Istio attaches them to the Gateway | H4, X0, X1 |
+| `partner-api` | one directory per business partner: the route the partner Gateway accepts and its rate limit — plus, from the environment's `envs/<env>/`, the roster that says which of them are onboarded here and their key Secrets, which the platform's `edge-authz` reads | X2, P1 |
 
-Each edge's `base/kustomization.yaml` sets its own `namespace:` — they are three
-namespaces of one team, so there is no repo-level `namespace` and none in
-`clusters/`. `edges/public-api/` has its own
+Every object names its own `metadata.namespace` — they are three namespaces of
+one team plus the policies that must sit in `platform-ingress`, so there is no
+`namespace:` transformer at any level: a transformer would rewrite the
+policies into a team namespace where they attach to nothing. `edges/public-api/` has its own
 [`README.md`](edges/public-api/README.md) with the four-party model and the
 route review checklist, and `edges/partner-api/` has
 [its own](edges/partner-api/README.md) with the partner onboarding checklist;
@@ -34,10 +35,10 @@ repos/team-sec-ops/
 │   └── kustomization.yaml     the roster of units: one line per edges/<edge>/envs/local, nothing else
 └── edges/
     ├── public-api/
-    │   ├── base/              the whole public edge: routes/, policies/, its own root
+    │   ├── base/              the whole public edge: routes/, edge-policies/, its own root
     │   └── envs/local/        ../../base and nothing more — the public edge is the same everywhere
     ├── partner-api/
-    │   ├── base/              partners/<partner>/{route,security,ratelimit}.yaml; its root is `resources: []`
+    │   ├── base/              partners/<partner>/{route,ratelimit}.yaml; its root is `resources: []`
     │   └── envs/local/        the roster, and one <partner>-keys.enc.yaml per onboarded partner
     └── egress-allowlist/
         ├── base/              the hosts that are the same in every environment
@@ -59,13 +60,15 @@ that is a root builds on its own — each edge's `base/` and `envs/local/`, each
 `edges/partner-api/base/partners/<partner>`, and `clusters/local`.
 
 **No `namePrefix`, `nameSuffix` or generators anywhere under this repo.** Five
-references inside it are by object name — the two Envoy Gateway policies'
-`targetRefs` → `HTTPRoute <partner>`, `credentialRefs` → `Secret
-<partner>-keys`, the `AuthorizationPolicy` `targetRefs` → `ServiceEntry
-api-partner-bank-test`, and the `DestinationRule` `credentialName` → `Secret
-partner-bank-client` — and kustomize has no name-reference configuration for
-Envoy Gateway or Istio CRDs. A rename rewrites none of them, and four of the
-five then fail *silently*: an unattached `SecurityPolicy` is an open route.
+references inside it are by name — the partner key Secret is found by the
+hostname's first label (`<partner>-keys`), each partner's `EnvoyFilter` names
+the virtual host `<partner>.partners.${CLUSTER_DOMAIN}:9443`, every edge
+policy's `targetRefs` names a Gateway, the `AuthorizationPolicy` `targetRefs` →
+`ServiceEntry api-partner-bank-test`, and the `DestinationRule`
+`credentialName` → `Secret partner-bank-client` — and kustomize has no
+name-reference configuration for Istio CRDs. A rename rewrites none of them,
+and most then fail *silently*: a mis-named rate limit limits nothing, a
+renamed Secret is a partner edge-authz answers 401 for.
 
 ## The signature is the approval
 

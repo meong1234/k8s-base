@@ -297,15 +297,21 @@ check:
 - label `platform.k8s-base/auth: none` for an open API or `jwt` for one
   behind a login
 - every backend in a namespace that is yours
-- the security response-header filter copied in
+- the CORS filter and the security response-header filter copied in
+  (admission refuses a route without the CORS one)
 
 **Step 4, sec-ops reviews and pushes.** The moment the route is merged it
-is rate-limited and CORS-fenced, because the edge policies select routes by
-label. There is no "forgot the policy" state.
+is rate-limited, because the rate limit is on the Gateway, and it is
+*closed*: the edge's `AuthorizationPolicy` denies any prefix on the public
+host without a token. A `jwt` route needs nothing more. An `auth: none`
+route is opened by adding its prefix to that policy's `notPaths`, in the
+same review. There is no "forgot the policy" state, only "not yet opened".
 
 **Calling a secured route.** A `jwt` route wants a token minted by Dex for
-the `public-api` client. Your own `kubectl` login token will not do; it is
-for a different audience and the edge answers 403 to make that visible.
+the `public-api` client. With no token the edge answers 403, `RBAC: access
+denied`. Your own `kubectl` login token will not do either; it is for a
+different audience and the edge answers 403 with `www-authenticate: …
+error="invalid_token"` to make that visible.
 
 ```sh
 TOKEN=$(make -s api-token USER=carol@team-b.local PASS=carol-local-dev)
@@ -462,8 +468,9 @@ with an API key, on its own hostname.
 The partner edge is a second gateway on port 9443 with its own certificate,
 so partner traffic never shares a proxy with the public host. A partner is
 three things: a directory under `edges/partner-api/base/partners/<name>/`
-with its route, API-key policy and rate limit (its contract, the same
-everywhere); a line in the environment's roster,
+with its route and its rate limit (its contract, the same everywhere; the
+key check is one platform policy on the Gateway that reads the partner's
+Secret by name); a line in the environment's roster,
 `edges/partner-api/envs/<env>/kustomization.yaml` (whether it exists here);
 and an encrypted key file beside the roster. The
 owning team adds `partner-api` as a second `from` in its `ReferenceGrant`.

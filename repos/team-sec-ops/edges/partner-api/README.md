@@ -2,16 +2,16 @@
 
 A named business partner reaches one backend, on its own hostname, with its own
 API keys and its own rate limit. Nothing here is on `api.${CLUSTER_DOMAIN}`: the
-partner edge is a second Gateway, a second Envoy Deployment, a second
+partner edge is a second Gateway, a second proxy Deployment, a second
 certificate and a second port, so a partner flood and a partner
 misconfiguration land on the partner proxy only and can never shadow a path on
 the public host.
 
 | Party | Object | Where |
 | --- | --- | --- |
-| platform | `Gateway partner`, one HTTPS listener on 9443 for `*.partners.${CLUSTER_DOMAIN}`, admitting routes only from namespaces labelled `platform.k8s-base/role: partner-edge` | `repos/platform/ingress/base/gateway-partner.yaml` |
-| platform | `EnvoyProxy partner` (its own LoadBalancer Service) and `Certificate partners-wildcard` | `repos/platform/proxies/base/`, `repos/platform/ingress/base/` |
-| team-sec-ops | one directory per partner under `base/partners/`: the route, the API-key `SecurityPolicy` and the rate limit — the partner's **contract**, the same wherever it is onboarded | `repos/team-sec-ops/edges/partner-api/base/` |
+| platform | `Gateway partner`, one HTTPS listener on 9443 for `*.partners.${CLUSTER_DOMAIN}`, admitting routes only from namespaces labelled `platform.k8s-base/role: partner-edge`; istiod renders its proxy and LoadBalancer Service | `repos/platform/ingress/base/gateway-partner.yaml` |
+| platform | `Certificate partners-wildcard`; `AuthorizationPolicy partner-edge-api-key`, which sends every request on the door to the `edge-authz` service; the rate-limit filter slot | `repos/platform/ingress/base/`, `repos/platform/edge-policies/base/`, `repos/platform/edge-authz/` |
+| team-sec-ops | one directory per partner under `base/partners/`: the route and the rate limit — the partner's **contract**, the same wherever it is onboarded | `repos/team-sec-ops/edges/partner-api/base/` |
 | team-sec-ops | the **roster** and the SOPS-encrypted key Secret, per environment | `repos/team-sec-ops/edges/partner-api/envs/<env>/` |
 | the owning team | a `ReferenceGrant` in the backend namespace naming `partner-api` as `from` | `repos/<team>/<ns>/public-consent.yaml` |
 
@@ -23,13 +23,13 @@ two halves: `base/partners/<name>/` declares that the partner *exists*, and a
 
 ## Why the split falls there
 
-A partner's route, API-key policy and rate limit are its contract, with the one
+A partner's route and rate limit are its contract, with the one
 environment-dependent string already a variable
 (`<partner>.partners.${CLUSTER_DOMAIN}`). What differs between environments is
 **whether the partner exists here** and **what its keys are**. So a partner live
 on `uat` before `prod` is one `resources:` line and one encrypted file, and a
 per-environment rate limit would be a `patches:` entry against
-`BackendTrafficPolicy/<partner>` in that `envs/<env>/` — never a fork of
+`EnvoyFilter/<partner>-ratelimit` in that `envs/<env>/` — never a fork of
 `base/`.
 
 Keys are in `envs/<env>/` *and* SOPS-encrypted for two separate reasons: the
@@ -59,29 +59,42 @@ and so does the port: `9443` is a listener, not a URL the environment picks.
 
 | Path | Object | Note |
 | --- | --- | --- |
-| `base/partners/partner-a/route.yaml` | `HTTPRoute partner-a` | `partner-a.partners.${CLUSTER_DOMAIN}/v1/orders` → `podinfo` in `team-b-apps`, `owner-team: team-b`, `auth: api-key` |
-| `base/partners/partner-a/security.yaml` | `SecurityPolicy partner-a` | `apiKeyAuth` from the `x-api-key` header, `forwardClientIDHeader: x-partner-id`, `sanitize: true` |
-| `base/partners/partner-a/ratelimit.yaml` | `BackendTrafficPolicy partner-a` | local rate limit, 100 requests per minute per distinct client IP |
-| `base/partners/partner-b/*` | the same three objects | 50 requests per minute, so a partner's limit is visibly its own |
-| `envs/local/kustomization.yaml` | — | the roster: `namespace: partner-api`, the `partner-route` label, and one `resources:` line per onboarded partner |
+| `base/partners/partner-a/route.yaml` | `HTTPRoute partner-a` | `partner-a.partners.${CLUSTER_DOMAIN}/v1/orders` → `podinfo` in `team-b-apps`, `owner-team: team-b`, `auth: api-key`; strips `x-api-key` before the backend |
+| `base/partners/partner-a/ratelimit.yaml` | `EnvoyFilter partner-a-ratelimit` in `platform-ingress` | local rate limit, 100 requests per minute per distinct client address, on the virtual host `partner-a.partners.${CLUSTER_DOMAIN}:9443` only |
+| `base/partners/partner-b/*` | the same two objects | 50 requests per minute, so a partner's limit is visibly its own |
+| `envs/local/kustomization.yaml` | — | the roster: the `partner-route` label and one `resources:` line per onboarded partner. No `namespace:` transformer, because the rate limits live in `platform-ingress` |
 | `envs/local/partner-a-keys.enc.yaml` | `Secret partner-a-keys` | Opaque, one entry per client id (`partner-a-prod`, `partner-a-staging`), SOPS-encrypted to this environment's sec-ops age recipient |
 | `envs/local/partner-b-keys.enc.yaml` | `Secret partner-b-keys` | partner-b's own keys |
 
-Both policies use `targetRefs` naming the one route, not `targetSelectors`: on
-this edge each partner's numbers and keys are different, so there is nothing to
-share. The `partner-route` label the **`envs/<env>/`** roster
-`kustomization.yaml` stamps is there for the operator
-(`kubectl get httproute -l`) and for a future edge-wide policy, not for
-attachment.
+**The key check is the platform's, the keys are sec-ops's.** Istio has no
+API-key primitive, so `AuthorizationPolicy partner-edge-api-key` on the Gateway
+(`repos/platform/edge-policies/base/`) sends every request on the door to
+`edge-authz`, a small service in `platform-ingress`
+(`tools/edge-authz/`). It takes the hostname's first label, reads
+`Secret <partner>-keys` in this namespace through a watch, compares the
+presented `x-api-key` against every entry in constant time, and answers 200
+with the entry's name as `x-partner-id` or an identical 401 for a missing key,
+an unknown key, an unknown hostname and another partner's key. The fleet
+template grants it read on this namespace's Secrets because the namespace's
+role is `partner-edge`. Nothing in a partner directory names the authorizer;
+the Secret name is the contract.
 
-**Nothing here may be renamed by kustomize.** The `SecurityPolicy`'s
-`targetRefs` names `HTTPRoute <partner>` and its `credentialRefs` names `Secret
-<partner>-keys`; the `BackendTrafficPolicy`'s `targetRefs` names the route.
-Kustomize has no name-reference configuration for Envoy Gateway CRDs, so a
-`namePrefix` or a generated Secret name rewrites the object and not the
-reference — and an unattached `SecurityPolicy` does not error, it serves the
-route with **no API-key check at all**. Hence: no `namePrefix`, no
-`nameSuffix`, no `secretGenerator`, anywhere in this repo.
+**The rate limit attaches to the Gateway, scoped by hostname.** Istio's
+`EnvoyFilter` can only attach to the partner Gateway from `platform-ingress`,
+so each `ratelimit.yaml` carries that namespace and matches the virtual host
+istiod names `<partner>.partners.${CLUSTER_DOMAIN}:9443`. The platform inserts
+the rate-limit filter itself with no bucket
+(`repos/platform/edge-policies/base/ratelimit-partner-filter.yaml`); a partner
+without its own `EnvoyFilter` is not limited at all. The sec-ops Flux identity
+holds a Role in `platform-ingress` for exactly this kind.
+
+**Nothing here may be renamed by kustomize, and no `namespace:` transformer
+may sit above these files.** The Secret is found by hostname, the rate limit
+by virtual-host name, and a rewritten `EnvoyFilter` namespace is accepted by
+the API server and ignored by the Gateway. None of these errors; a mis-scoped
+rate limit limits nothing. Hence: no `namePrefix`, no `nameSuffix`, no
+`secretGenerator`, anywhere in this repo, and `metadata.namespace` on every
+object.
 
 ## Onboarding a partner
 
@@ -90,10 +103,12 @@ Onboarding a partner is three things: **the base files, a roster line in every
 Steps 1 and 5 below are those three; the rest is what to put in them.
 
 1. **New directory in `base/`.** `base/partners/<partner>/` with
-   `route.yaml`, `security.yaml`, `ratelimit.yaml` and a `kustomization.yaml`
-   listing those three, copied from `partner-a` and renamed. Every object is
-   named `<partner>` so the policies' `targetRefs` need no thought. No
-   `keys.enc.yaml` here — it is `envs/<env>/`'s.
+   `route.yaml`, `ratelimit.yaml` and a `kustomization.yaml` listing both,
+   copied from `partner-a` and renamed. Every object is named `<partner>`:
+   edge-authz finds the Secret as `<partner>-keys` from the hostname's first
+   label, and the rate limit names the virtual host
+   `<partner>.partners.${CLUSTER_DOMAIN}:9443`. No `keys.enc.yaml` here — it is
+   `envs/<env>/`'s.
 2. **Owner team.** `platform.k8s-base/owner-team` is the team that owns the
    **backend** Service, not team-sec-ops. `public-route-owner` checks the
    backend namespace against that label, so a partner route pointing at
@@ -129,14 +144,17 @@ Steps 1 and 5 below are those three; the rest is what to put in them.
    differ per environment and so does the recipient, which is the whole reason
    they are not in `base/`. Leaving the roster line out of an environment is how
    a partner is *not* onboarded there — the base files are inert on their own.
-6. **Rotation is two merges.** Envoy Gateway reads *every* key of the Secret, so
-   merge one adds the new client id next to the old one, the partner switches
-   over, and merge two removes the old id. There is no window in which neither
-   key works, and the `x-partner-id` the backend sees says which one the caller
-   used.
+6. **Rotation is two merges.** edge-authz compares the presented key against
+   *every* entry of the Secret and watches it, so merge one adds the new client
+   id next to the old one, the partner switches over, and merge two removes the
+   old id. There is no window in which neither key works, no restart, and the
+   `x-partner-id` the backend sees says which one the caller used.
 7. **Rate limit.** Pick the partner's contractual number. It is a local limit,
-   so it is per Envoy replica (`EnvoyProxy partner` runs one); a global limit
-   needs the Redis-backed rate limit service.
+   so it is per gateway replica (the partner Gateway runs one); a global limit
+   needs a rate limit service. It is scoped to the partner by the virtual host
+   istiod names `<partner>.partners.${CLUSTER_DOMAIN}:9443`; a typo there
+   limits nothing and errors nowhere, so after merging check
+   `istioctl proxy-config route deploy/partner-istio -n platform-ingress`.
 8. **Consent.** The owning team adds `partner-api` as a second `from` entry in
    its `ReferenceGrant`. Without it the route reports `ResolvedRefs: False` and
    the partner gets a 500.
@@ -147,10 +165,11 @@ Steps 1 and 5 below are those three; the rest is what to put in them.
 x-partner-id: partner-a-prod
 ```
 
-and no `x-api-key`: `sanitize: true` strips the credential at the edge, so the
-key never reaches `team-b-apps` and the backend authorizes on the client id. A
-key is a partner identity, not a user identity — the backend must not treat
-`x-partner-id` as an end user.
+and no `x-api-key`: the route's `RequestHeaderModifier` removes the credential
+after edge-authz has read it, so the key never reaches `team-b-apps` and the
+backend authorizes on the client id, which Envoy sets from edge-authz's answer
+and overwrites if a client sent one. A key is a partner identity, not a user
+identity — the backend must not treat `x-partner-id` as an end user.
 
 ## Review checklist
 
@@ -158,17 +177,18 @@ key is a partner identity, not a user identity — the backend must not treat
 - [ ] `owner-team` is the backend's team; `auth: api-key`.
 - [ ] `parentRefs` is `platform-ingress/partner` with `sectionName: https`.
 - [ ] `PathPrefix` plus a `URLRewrite` so the backend serves its own paths.
-- [ ] `credentialRefs` names this partner's Secret and no other.
-- [ ] `forwardClientIDHeader` and `sanitize: true` are both present.
+- [ ] A `RequestHeaderModifier` filter removes `x-api-key`, so the credential
+      stops at the edge.
 - [ ] `<partner>-keys.enc.yaml` contains `ENC[` and the client ids are prefixed
       with the partner name.
-- [ ] A `BackendTrafficPolicy` exists with the contractual number.
+- [ ] An `EnvoyFilter <partner>-ratelimit` exists with the contractual number,
+      `namespace: platform-ingress`, and its `vhost.name` is exactly
+      `<partner>.partners.${CLUSTER_DOMAIN}:9443`.
 - [ ] The owning team's `ReferenceGrant` lists `partner-api`.
 - [ ] **Roster and keys agree.** Every `base/partners/<partner>` path in an
       `envs/<env>/` `resources:` has a `<partner>-keys.enc.yaml` beside it, and every
       `*-keys.enc.yaml` has a roster line. A key with no route is dead weight; a
-      route with no key is a `SecurityPolicy` whose `credentialRefs` does not
-      resolve.
+      route with no key is a hostname edge-authz answers 401 for.
 - [ ] **Nothing new in `base/` that is environment-specific**, and no
       `*.enc.yaml` in `base/` at all.
 

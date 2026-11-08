@@ -58,7 +58,7 @@ kubelogin resolves `dex.local-dev.test` itself and has no `--resolve`, so the
 `/etc/hosts` line `make hosts-print` asks for is load-bearing — and editing
 `/etc/hosts` needs `sudo`. On a laptop where that is not available,
 `make dex-proxy` starts a loopback CONNECT proxy
-(`warden/cmd/dexproxy`, 127.0.0.1:18443) that dials the k3d loadbalancer for
+(`tools/warden/cmd/dexproxy`, 127.0.0.1:18443) that dials the k3d loadbalancer for
 every CONNECT, which is exactly the decision the hosts entry would have made.
 The three identity demos and the four access demos export
 

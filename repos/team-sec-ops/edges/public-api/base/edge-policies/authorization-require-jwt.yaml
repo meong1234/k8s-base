@@ -1,0 +1,42 @@
+---
+# Fail closed: every prefix on the public host needs a verified token unless it
+# is listed in notPaths. A new route is secured the moment it is merged; opening
+# it is an edit here, next to the `platform.k8s-base/auth: none` label on the
+# route, and the two must agree.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: public-edge-require-jwt
+  namespace: platform-ingress
+  labels:
+    platform.k8s-base/owner-team: team-sec-ops
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: public
+  action: DENY
+  rules:
+    - from:
+        - source:
+            # No verified principal at all, i.e. no token. An invalid token
+            # never reaches this rule: jwt_authn has already answered 401.
+            notRequestPrincipals: ["*"]
+      to:
+        - operation:
+            # The HTTPS listener only; the :80 redirect route stays anonymous.
+            ports: ["443"]
+            # Istio matches :authority verbatim, port included, and the laptop
+            # dials ${PUBLIC_PORT} through the k3d port mapping, not 443.
+            hosts:
+              - api.${CLUSTER_DOMAIN}
+              - "api.${CLUSTER_DOMAIN}:*"
+            # The open prefixes, as the client sends them: this runs before the
+            # route's URLRewrite.
+            notPaths:
+              - /podinfo
+              - /podinfo/*
+            # CORS preflights carry no Authorization and the cors filter runs
+            # after RBAC on a gateway; without this a browser never gets past
+            # the preflight on a secured prefix.
+            notMethods: [OPTIONS]

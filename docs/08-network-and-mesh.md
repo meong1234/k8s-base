@@ -68,6 +68,32 @@ application port, from a link-local address the CNI assigns, and they are
 outside the mesh on purpose. A separate allow rule exists only for that
 address.
 
+## The ingress gateways in an ambient mesh
+
+The three doors (`public`, `internal`, `partner`) are Istio-managed Gateway
+API `Gateway`s in `platform-ingress`, rendered by istiod into one Envoy
+Deployment each, the same way a waypoint is. Two facts about them explain
+every policy that names them:
+
+- **They are not captured by ztunnel.** `platform-ingress` is deliberately
+  not labelled ambient. A gateway terminates TLS itself, so the plaintext
+  TCP that k3s' servicelb forwards into it never meets ztunnel's inbound and
+  the mesh-wide STRICT rule has nothing to say about it. Labelling the
+  namespace would capture the gateways and break the door.
+- **They speak HBONE outbound anyway.** istiod tells the gateway's Envoy which
+  endpoints are ambient, and it tunnels to them on 15008 with its own
+  identity, `spiffe://cluster.local/ns/platform-ingress/sa/public-istio`.
+  That is why the team baseline admits `platform-ingress` on 15008 and
+  nothing else, and why a team's `AuthorizationPolicy` can name the gateway
+  as a source like any other workload.
+
+One port-level exception exists for their sake: istiod fetches the Dex JWKS
+that the public edge verifies tokens against, and istiod is not a mesh
+workload, so Dex's port 5556 is `PERMISSIVE` for plaintext while the rest of
+Dex stays `STRICT`. The platform's own `edge-authz` pod in `platform-ingress`
+is enrolled individually, by a pod label, so the partner gateway reaches it
+over HBONE.
+
 ## The baseline every team gets
 
 When the fleet template stamps a workload namespace, it stamps one
@@ -78,7 +104,7 @@ network questions answer themselves. It allows:
                           ┌────────────── team-b-apps ──────────────┐
    same team (any ns) ───▶│                                         │───▶ same team (any ns)
    allowFrom namespaces ─▶│    NetworkPolicy                        │───▶ kube-dns :53
-   envoy gateways :15008 ▶│    team-baseline-default-deny           │───▶ platform-egress :15008
+   ingress gateways:15008▶│    team-baseline-default-deny           │───▶ platform-egress :15008
    probe address ────────▶│                                         │
                           │    anything else, either direction:     │ ✗   other teams, the internet,
                           │    DROPPED                               │     flux-system, istio-system
@@ -89,7 +115,7 @@ network questions answer themselves. It allows:
 **Ingress from**
 - the team's own namespaces (matched by the `platform.k8s-base/team` label)
 - any namespace the fleet input lists under `allowFrom`
-- the Envoy gateways' namespace, on 15008, so a public route can reach the Service
+- `platform-ingress`, the ingress gateways' namespace, on 15008, so a public route can reach the Service
 - the probe address, so health checks work
 
 **Egress to**

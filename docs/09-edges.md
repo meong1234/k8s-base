@@ -29,11 +29,12 @@ The cluster's boundary has three doors. Two face in, one faces out.
                                    what is routed through them is sec-ops's (repos/team-sec-ops)
 ```
 
-The doors themselves are the platform's: the Envoy proxies, the Gateway
-objects, the certificates, the egress waypoint, all in `repos/platform/`.
-What passes through them is the security team's: the routes, the partner
-contracts, the host list, all in `repos/team-sec-ops/`. The platform owns
-the door; sec-ops owns the list.
+The doors themselves are the platform's: the Gateway objects, the proxies
+istiod renders from them, the certificates, the egress waypoint, all in
+`repos/platform/`. What passes through them is the security team's: the
+routes, the edge policies, the partner contracts, the host list, all in
+`repos/team-sec-ops/`. The platform owns the door; sec-ops owns the rules on
+it and the list of what goes through.
 
 ## Why sec-ops is a team, not a role
 
@@ -44,7 +45,9 @@ understanding why.
 `team-sec-ops` is onboarded exactly like a product team: its own
 repository, its own cosign key, its own age key, its own Flux source and
 Kustomization reconciling as `system:serviceaccount:team-sec-ops:flux`,
-bound only in its own three namespaces. The only thing that makes those
+bound in its own three namespaces plus one scoped `Role` in
+`platform-ingress` for the three Istio policy kinds that can only attach to
+a Gateway from the Gateway's own namespace. The only thing that makes its
 namespaces special is a role label the fleet input gives them
 (`public-edge`, `partner-edge`, `egress-allowlist`), and the platform's
 Gateways and admission policies key on that label.
@@ -88,29 +91,42 @@ check failed and what the allocation is.
 
 ### Authentication at the edge
 
-The `auth` label on the route is not decoration: it is what selects which
-policy covers the route. Two `SecurityPolicy` objects in `public-api` select
-routes by that label. The `none` policy applies CORS. The `jwt` policy
-applies CORS plus JWT validation against Dex, with the audience pinned to
-the `public-api` client. A `BackendTrafficPolicy` selects every public
-route for rate limiting regardless of class.
+Istio attaches edge policy to the Gateway, not to a route, and only from the
+Gateway's own namespace. So the three objects that govern the public door are
+sec-ops files applied into `platform-ingress`, under a Role scoped to exactly
+these three kinds:
 
-Because selection is by label and admission requires the label, a route is
-covered the moment it is merged. There is no state in which a route exists
-with no class, and a team cannot weaken any of the three because a team
-cannot write in this namespace.
+| Object | What it does |
+| --- | --- |
+| `RequestAuthentication public-edge-jwt` | validates any `Authorization: Bearer` token against Dex, audience pinned to the `public-api` client, and writes the verified `email` and `groups` claims to `x-user-email` and `x-user-groups` |
+| `AuthorizationPolicy public-edge-require-jwt` | `DENY` without a verified token on `api.<zone>`, except the prefixes listed in `notPaths`, which are the open ones |
+| `EnvoyFilter public-edge-ratelimit` | 20 requests per minute per client address, across the whole door |
+
+The policy is fail-closed: a new prefix on the public host is secured the
+moment its route is merged, and opening it is an edit to `notPaths` that a
+reviewer reads next to the route's `auth: none` label. Rate limiting is
+Gateway-wide, so it covers a route before anyone thinks about it. CORS is the
+one thing that moved onto the route, as a Gateway API `CORS` filter, and
+admission refuses a public route that reaches a backend without one. A team
+cannot weaken any of this because a team cannot write in `platform-ingress`.
 
 A `jwt` route answers:
 
-- **401** to a request with no token, or a token the edge cannot verify.
+- **403** `RBAC: access denied` to a request with no token. Authorization
+  refused it: there was no credential to check.
+- **401** to a token the edge cannot verify: malformed, expired, or signed
+  by someone other than Dex. Authentication refused it.
 - **403** to a token that verifies but was issued for a different audience.
-  A developer's own `kubectl` login token is the common case: Dex signed
-  it, but for the `kubernetes` client, and the edge says so in the
-  `www-authenticate` header. The difference between 401 and 403 is how you
-  tell "no credential" from "wrong credential".
+  A developer's own `kubectl` login token is the common case: Dex signed it,
+  but for the `kubernetes` client. The edge says so in
+  `www-authenticate: … error="invalid_token"`, which the no-token 403 does
+  not carry: a verified credential presented at the wrong door is a
+  permission problem, and the JWT filter codes it as one.
 - **200** to a token for `public-api`, and the backend receives
   `x-user-email` with the verified claim. The backend authorises on a header
-  it can trust and never parses a JWT itself.
+  it can trust and never parses a JWT itself. A client cannot pre-set that
+  header: the first filter on the door strips `x-user-email` and
+  `x-user-groups` from every request before the JWT filter writes them.
 
 `make api-token USER=<email> PASS=<password>` mints one for the demo users.
 
@@ -129,28 +145,35 @@ policies README.
 
 A business partner is not a public user and should not share the public
 door. A partner gets a second gateway on its own port, 9443, with its own
-Envoy proxy and its own wildcard certificate for `*.partners.<zone>`. A
+proxy Deployment and its own wildcard certificate for `*.partners.<zone>`. A
 partner's flood or misconfiguration lands on the partner proxy only and can
 never shadow a path on the public host.
 
 ```
    partner-a ──x-api-key: …──▶ :9443  partner-a.partners.<zone>/v1/orders
-                                  │  Gateway partner (own Envoy, own certificate)
-                                  ├─ SecurityPolicy partner-a      key valid? ──▶ add x-partner-id: partner-a-prod, strip the key
-                                  ├─ BackendTrafficPolicy partner-a   100 requests/min per client
+                                  │  Gateway partner (own proxy, own certificate)
+                                  ├─ AuthorizationPolicy partner-edge-api-key ──▶ edge-authz: is the key in Secret partner-a-keys?
+                                  │     (CUSTOM, the platform's)                  yes ──▶ x-partner-id: partner-a-prod   no ──▶ 401
+                                  ├─ EnvoyFilter partner-a-ratelimit              100 requests/min per client, this hostname only
                                   └─ HTTPRoute partner-a ──▶ podinfo in team-b-apps   (ReferenceGrant lists partner-api)
-                                                                 backend sees x-partner-id, never the key
+                                        strips x-api-key                       backend sees x-partner-id, never the key
 
-   edges/partner-api/base/partners/partner-a/   the contract: route, security, ratelimit   (same everywhere)
-   edges/partner-api/envs/<env>/                the roster line + partner-a-keys.enc.yaml  (exists here or not)
+   edges/partner-api/base/partners/partner-a/   the contract: route, ratelimit             (same everywhere)
+   edges/partner-api/envs/<env>/                the roster line + partner-a-keys.enc.yaml   (exists here or not)
 ```
 
 Each partner is a directory under `edges/partner-api/base/partners/<name>/`
-holding three objects named after the partner: the `HTTPRoute` for exactly
-one hostname, `<name>.partners.<zone>`; a `SecurityPolicy` that checks an
-`x-api-key` header against a Secret, forwards which key was used as
-`x-partner-id`, and strips the key before the backend sees it; and a
-`BackendTrafficPolicy` with that partner's contractual rate limit.
+holding two objects named after the partner: the `HTTPRoute` for exactly one
+hostname, `<name>.partners.<zone>`, which also strips `x-api-key` before the
+backend; and an `EnvoyFilter` with that partner's contractual rate limit,
+scoped to that hostname. The key check itself is one platform object on the
+Gateway. Every request on the partner door is sent to `edge-authz`, a small
+service in `platform-ingress` that reads `Secret <name>-keys` for the
+hostname's first label, compares the presented key against every entry, and
+answers 200 with the entry's name as `x-partner-id`, or 401. Istio has no
+API-key primitive of its own; `tools/edge-authz/` is forty lines of decision
+and a Secret watch, and the key Secrets, their format and their rotation are
+exactly what they were.
 
 Whether a partner *exists* in an environment is a separate question from
 what its contract says, and the repo keeps them apart. The contract is in
@@ -168,12 +191,16 @@ never share a key set. The owning team's consent is the same
 `ReferenceGrant` as for the public door, with `partner-api` added as a
 second `from`.
 
-One rule specific to this repo: nothing may be renamed by kustomize. The
-policies attach to routes and Secrets by name, kustomize has no
-name-reference configuration for these CRDs, and a `SecurityPolicy` whose
-target does not exist does not error, it silently serves the route with no
-API-key check. A repo check refuses `namePrefix`, `nameSuffix` and the
-generators anywhere under `repos/team-sec-ops`.
+One rule specific to this repo: nothing may be renamed by kustomize, and no
+`namespace:` transformer sits above the edge policies. The rate limit matches
+the virtual host istiod names `<hostname>:9443`, edge-authz finds the Secret
+by the hostname's first label, and a policy whose namespace was rewritten
+attaches to nothing. None of these errors: a mis-scoped rate limit limits
+nothing, and a rewritten policy is accepted by the API server and ignored by
+the Gateway. A repo check refuses `namePrefix`, `nameSuffix` and the
+generators anywhere under `repos/team-sec-ops`, and
+`istioctl proxy-config route deploy/partner-istio -n platform-ingress` shows
+what the proxy actually holds.
 
 ## The egress door
 
@@ -236,5 +263,7 @@ Outbound traffic is attributable to a workload, not to a NAT address.
 - The egress review checklist, the base-versus-envs rule for a host, and what the cluster proved about cross-namespace policy: `repos/team-sec-ops/README.md`
 - The public door, the four-party model, the route checklist, and why the security headers are a route filter: `repos/team-sec-ops/edges/public-api/README.md`
 - The partner door and the onboarding checklist, including key rotation: `repos/team-sec-ops/edges/partner-api/README.md`
+- The platform half of the edges, what is in `platform-ingress` and why the Istio policies are a second Flux stage: `repos/platform/edge-policies/README.md`
+- The API-key authorizer, its contract with Envoy and why it watches Secrets rather than mounting them: `tools/edge-authz/README.md`
 - The waypoint, its credential permission, and the silent `WARMING` state when it is missing: `repos/platform/egress/base/README.md`
 - The partner simulation and why it runs outside the cluster: `sim/partner-bank/README.md`

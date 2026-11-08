@@ -1,6 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: partner-api
+# No `namespace:` transformer: routes and key Secrets live in partner-api, the
+# per-partner rate limits attach to the partner Gateway in platform-ingress, and
+# kustomize would rewrite that. Every object names its namespace itself.
 labels:
   - includeSelectors: false
     pairs:

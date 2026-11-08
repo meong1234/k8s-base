@@ -9,9 +9,6 @@ spec:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
       namespace: public-api
-    - group: gateway.envoyproxy.io
-      kind: SecurityPolicy
-      namespace: public-api
   to:
     - group: ""
       kind: Service

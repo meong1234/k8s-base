@@ -20,6 +20,7 @@ DEX_USERS_CM     = repos/platform/identity/envs/$(CLUSTER_ENV)/dex-users-configm
 DEX_CLIENT_FILE  = $(PLATFORM_KEYS)/dex-client-secret
 DEX_CLIENT_ID   := kubernetes
 PUBLIC_API_CLIENT_FILE = $(PLATFORM_KEYS)/dex-public-api-secret
+OAUTH2_COOKIE_FILE = $(PLATFORM_KEYS)/oauth2-cookie-secret
 PUBLIC_API_CLIENT_ID  := public-api
 DEX_NS          := platform-identity
 DEX_HOST        := dex.local-dev.test
@@ -38,10 +39,10 @@ DEMO_PUBLIC_API_SECRET := dex-public-api-local-dev-secret
 DEX_PROXY_PORT  := 18443
 DEX_PROXY_PID    = $(PLATFORM_KEYS)/dex-proxy.pid
 DEX_PROXY_BIN    = $(PLATFORM_KEYS)/dexproxy
-DEX_PROXY_SRC   := warden/cmd/dexproxy
+DEX_PROXY_SRC   := tools/warden/cmd/dexproxy
 # kubelogin resolves $(DEX_HOST) itself and there is no --resolve for it, so a
 # laptop without the /etc/hosts line (editing it needs root) has no path to Dex.
-# warden/cmd/dexproxy supplies the name-to-address decision over HTTPS_PROXY.
+# tools/warden/cmd/dexproxy supplies the name-to-address decision over HTTPS_PROXY.
 OIDC_PROXY_ENV   = HTTPS_PROXY=http://127.0.0.1:$(DEX_PROXY_PORT) \
                    NO_PROXY=127.0.0.1,0.0.0.0,localhost,::1,.svc,.cluster.local
 OIDC_ENV         = $(OIDC_PROXY_ENV)
@@ -176,6 +177,13 @@ dex-secrets: dex-client-secret
 	  --from-file=client-secret=$(DEX_CLIENT_FILE) \
 	  --from-file=public-api-client-secret=$(PUBLIC_API_CLIENT_FILE) \
 	  --dry-run=client -o yaml | kubectl apply -f -
+	@if [ ! -s $(OAUTH2_COOKIE_FILE) ]; then \
+	  openssl rand -hex 16 | tr -d "\n" > $(OAUTH2_COOKIE_FILE); chmod go-rwx $(OAUTH2_COOKIE_FILE); \
+	  echo "==> Wrote $(OAUTH2_COOKIE_FILE)"; \
+	fi
+	@kubectl -n $(DEX_NS) create secret generic oauth2-proxy-cookie \
+	  --from-file=cookie-secret=$(OAUTH2_COOKIE_FILE) \
+	  --dry-run=client -o yaml | kubectl apply -f -
 
 # Stdout is the token and nothing else, so $(shell) and $$(make -s api-token ...)
 # both work; everything else goes to stderr.
@@ -202,7 +210,7 @@ dex-proxy-build:
 	@mkdir -p $(PLATFORM_KEYS)
 	@if [ ! -x $(DEX_PROXY_BIN) ] || [ -n "$$(find $(DEX_PROXY_SRC) -newer $(DEX_PROXY_BIN) -name '*.go' 2>/dev/null)" ]; then \
 	  echo "==> Building $(DEX_PROXY_BIN) from $(DEX_PROXY_SRC)"; \
-	  ( cd warden && go build -o $(CURDIR)/$(DEX_PROXY_BIN) ./cmd/dexproxy ); \
+	  ( cd tools/warden && go build -o $(CURDIR)/$(DEX_PROXY_BIN) ./cmd/dexproxy ); \
 	fi
 
 dex-proxy: dex-proxy-build

@@ -1,0 +1,37 @@
+---
+# The JWT filter sets x-user-email / x-user-groups from verified claims but does
+# not clear them when the claim is absent, and nothing clears them on the open
+# prefixes. Strip both as the very first filter, before jwt_authn writes the
+# real values. A RequestHeaderModifier on the route would run in the router,
+# after jwt_authn, and delete the legitimate value too.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: public-identity-header-sanitize
+  namespace: platform-ingress
+  labels:
+    app.kubernetes.io/part-of: platform
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: public
+  priority: -10
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+      patch:
+        operation: INSERT_FIRST
+        value:
+          name: platform.identity-header-sanitize
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.header_mutation.v3.HeaderMutation
+            mutations:
+              request_mutations:
+                - remove: x-user-email
+                - remove: x-user-groups

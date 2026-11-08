@@ -1,0 +1,133 @@
+---
+# The Hubble UI login. Istio has no OIDC browser flow of its own, so the
+# internal Gateway hands every request for the hubble host to oauth2-proxy as
+# an ext_authz check (repos/platform/edge-policies/base/authz-hubble-oidc.yaml).
+# oauth2-proxy answers 302 to Dex when there is no session, 200 when the cookie
+# is valid, and handles /oauth2/* itself; it never proxies the UI.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oauth2-proxy
+  namespace: platform-identity
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/part-of: platform
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy
+  namespace: platform-identity
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/part-of: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/part-of: platform
+    spec:
+      serviceAccountName: oauth2-proxy
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # distroless/static:nonroot; the image sets no USER of its own.
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
+          imagePullPolicy: IfNotPresent
+          args:
+            - --provider=oidc
+            - --provider-display-name=Dex
+            - --client-id=kubernetes
+            # The browser-facing issuer is the `iss` Dex writes into the token,
+            # and that string comparison is all it is used for here: it does not
+            # resolve in-cluster, so discovery is skipped and the three endpoints
+            # are named -- the browser leg public, the two server legs in-cluster.
+            - --oidc-issuer-url=https://dex.${CLUSTER_DOMAIN}:${PUBLIC_PORT}
+            - --skip-oidc-discovery=true
+            - --login-url=https://dex.${CLUSTER_DOMAIN}:${PUBLIC_PORT}/auth
+            - --redeem-url=http://dex.platform-identity.svc.cluster.local:5556/token
+            - --oidc-jwks-url=http://dex.platform-identity.svc.cluster.local:5556/keys
+            # Already registered on the Dex `kubernetes` client.
+            - --redirect-url=https://hubble.internal.${CLUSTER_DOMAIN}:${INTERNAL_PORT}/oauth2/callback
+            - --scope=openid profile email groups
+            - --email-domain=*
+            # ext_authz mode: an authenticated request is answered 200 here and
+            # Envoy forwards the original request to hubble-ui itself.
+            - --upstream=static://200
+            - --http-address=0.0.0.0:4180
+            - --reverse-proxy=true
+            # 302 straight to Dex /auth rather than to a sign-in page first.
+            - --skip-provider-button=true
+            - --cookie-name=_hubble_oauth2
+            - --cookie-secure=true
+            - --cookie-samesite=lax
+            - --cookie-expire=8h
+            - --set-xauthrequest=true
+            - --set-authorization-header=false
+            - --pass-authorization-header=false
+            - --pass-access-token=false
+            - --whitelist-domain=hubble.internal.${CLUSTER_DOMAIN}:${INTERNAL_PORT}
+            - --silence-ping-logging=true
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: dex-client
+                  key: client-secret
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-proxy-cookie
+                  key: cookie-secret
+          ports:
+            - name: http
+              containerPort: 4180
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy
+  namespace: platform-identity
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/part-of: platform
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+  ports:
+    - name: http
+      port: 4180
+      targetPort: http
+      appProtocol: http

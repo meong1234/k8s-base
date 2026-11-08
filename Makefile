@@ -3,7 +3,7 @@
 
 include scripts/*.mk
 
-help: setup-help k8s-help images-help fluxcd-help artifacts-help env-help teams-help mesh-help identity-help access-help partner-help demos-help
+help: setup-help k8s-help images-help fluxcd-help artifacts-help env-help teams-help mesh-help edge-help identity-help access-help partner-help demos-help
 	@echo "k8s-base — multi-team GitOps platform on k3d"
 	@echo "=============================================="
 	@echo ""

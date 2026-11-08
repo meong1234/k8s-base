@@ -95,7 +95,7 @@ env-help:
 	@echo "                     credential exists (cluster-side), and no repo under repos/"
 	@echo "                     reaches into another"
 	@echo "  smoke            - What a real environment runs instead of the demos: Flux is Ready, the"
-	@echo "                     team boundary holds, and a secured public path answers 401 without a token"
+	@echo "                     team boundary holds, and a secured public path answers 403 without a token"
 	@echo ""
 
 # Check 3 hands envsubst a shell-format argument built from the cluster-vars
@@ -525,14 +525,14 @@ smoke:
 	URL=https://api.$$DOMAIN:$$PORT/$$P/; \
 	CODE=$$(curl -sS -o /dev/null -m 15 -w '%{http_code}' $(SMOKE_CURL_OPTS) $$URL 2>/dev/null) || true; \
 	CODE=$${CODE:-000}; \
-	test "$$CODE" = 401 || { echo "  !! 3/3 $$URL answered $$CODE without a token, not 401"; \
+	test "$$CODE" = 403 || { echo "  !! 3/3 $$URL answered $$CODE without a token, not 403"; \
 	  echo "         (an environment whose edge needs a private CA or a host override wants SMOKE_CURL_OPTS=)"; exit 1; }; \
 	if [ -n "$(SMOKE_TOKEN)" ]; then \
 	  CODE=$$(curl -sS -o /dev/null -m 15 -w '%{http_code}' $(SMOKE_CURL_OPTS) -H "Authorization: Bearer $(SMOKE_TOKEN)" $$URL 2>/dev/null) || true; \
 	  CODE=$${CODE:-000}; \
 	  test "$$CODE" = 200 || { echo "  !! 3/3 $$URL answered $$CODE with a token, not 200"; exit 1; }; \
-	  echo "  ok 3/3 $$URL is 401 without a token and 200 with one"; \
+	  echo "  ok 3/3 $$URL is 403 without a token and 200 with one"; \
 	else \
-	  echo "  ok 3/3 $$URL is 401 without a token (pass SMOKE_TOKEN= to assert the 200 half)"; \
+	  echo "  ok 3/3 $$URL is 403 without a token (pass SMOKE_TOKEN= to assert the 200 half)"; \
 	fi
 	@echo "smoke: 3/3 pass"

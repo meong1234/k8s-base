@@ -24,7 +24,7 @@ The whole thing runs on a laptop with k3d. `make up` brings it up,
    (public routes, partners,      │                                               │
     outbound allow-list)          │  public edge     partner edge    egress edge   │
                                   │                                               │
-   platform team ──template────▶  │  Flux · Cilium · Istio ambient · Envoy Gateway │
+   platform team ──template────▶  │  Flux · Cilium · Istio ambient (mesh + edges)  │
    (the base, the rules)          │  Dex · admission policies · access-warden     │
                                   └───┬───────────────────┬──────────────────┬────┘
    public users ──────────────────────┘    a partner ──────┘   listed hosts ◀─┘
@@ -43,9 +43,9 @@ The whole thing runs on a laptop with k3d. `make up` brings it up,
   workload identity, two-party cross-team access, one egress waypoint with
   per-host, per-team grants and an access log that names the caller.
 - **Edges.** One public host with a path prefix per team, JWT or open per
-  route, rate-limited by label. A separate partner gateway with its own
-  certificate, keys and limits. All of it reviewed by one team through
-  pull requests.
+  route, rate-limited and closed by default on the Gateway itself. A
+  separate partner gateway with its own certificate, keys and limits. All of
+  it Istio, all of it reviewed by one team through pull requests.
 - **People.** OIDC login, four tiers of role, just-in-time privileged access
   with four-eyes approval and expiry, and an audit log with real names.
 - **Verification.** Twenty-two demos that each attempt the forbidden thing
@@ -84,7 +84,8 @@ repos/            eight repositories in one tree, each a real repo on a real pla
     kustomization.yaml            resources: [clusters/local]
   <group> is apps/ or batch/ in a team repo, edges/ in team-sec-ops,
   and one directory per component in infra/ and platform/
-warden/           the one custom component: the just-in-time access controller (Go)
+tools/            the two custom components (Go): warden/, the just-in-time access
+                  controller, and edge-authz/, the partner API-key check for the edge
 scripts/          the make modules behind every target
 demos/            inputs and walkthroughs for the demos
 k3d/              the cluster definition, admission defaults, audit policy

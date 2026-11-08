@@ -1,0 +1,39 @@
+---
+# The slot, not the limit. This inserts Envoy's local rate limiter on the
+# partner door with no token bucket, so a virtual host without its own
+# typed_per_filter_config is not limited at all. Each partner's EnvoyFilter in
+# repos/team-sec-ops/edges/partner-api/base/partners/<partner>/ratelimit.yaml
+# supplies the bucket for that partner's hostname.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: partner-edge-ratelimit-filter
+  namespace: platform-ingress
+  labels:
+    app.kubernetes.io/part-of: platform
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: partner
+  priority: 0
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        # After ext_authz and RBAC, before the router: a 401 spends no token.
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.local_ratelimit
+          typed_config:
+            "@type": type.googleapis.com/udpa.type.v1.TypedStruct
+            type_url: type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+            value:
+              stat_prefix: partner_edge_local_rl

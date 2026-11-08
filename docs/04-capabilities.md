@@ -160,10 +160,11 @@ exfiltrated to anywhere.
 
 **A reviewed public edge.** One public hostname; each team's API is a
 prefix the platform allocated. A route needs an owner label, an auth class,
-a backend in the owner's namespaces and the owner's consent object. Rate
-limiting and CORS attach by label the moment a route is merged. Secured
-routes validate a JWT for a pinned audience at the edge and hand the backend
-a verified email header.
+a backend in the owner's namespaces and the owner's consent object. The
+rate limit is Gateway-wide and the JWT policy is fail-closed, so a route is
+covered the moment it is merged; CORS is a route filter admission requires.
+Secured routes validate a JWT for a pinned audience at the edge and hand the
+backend a verified email header.
 *Practice:* centralised ingress security, authentication at the edge,
 four-party control over exposure.
 *Without it:* every team runs its own ingress with its own auth, and the
@@ -241,7 +242,8 @@ Being honest about the edges of the paved road is part of the road:
 - Container images are not signed or verified; the signing here is on
   manifests. Image verification is a separate policy a real platform would
   add.
-- Rate limits are per Envoy replica, not global.
+- Rate limits are per gateway replica, not global, and are raw Envoy
+  configuration in an `EnvoyFilter`: Istio has no rate-limit API of its own.
 - The identity provider is a stand-in with static users.
 
 Each is named where it comes up on the other pages, and none changes the

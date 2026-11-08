@@ -27,10 +27,10 @@ When one of these is bumped, that file is the only place to edit, and
 | --- | --- | --- | --- |
 | Cilium | 1.20.4 | the CNI; enforces every `NetworkPolicy` and the two cluster-wide rules | `k3d/cilium-helmchart.yaml`, `scripts/images.mk` |
 | Hubble (relay and UI) | 1.20.4, UI 0.13.6 | shows every flow and its verdict; the UI is behind the internal gateway with login | same |
-| Istio, ambient mode | 1.31.3 | ztunnel on every node for mTLS and identity; istiod; waypoints where a team opts in; the egress waypoint | `repos/platform/istio/base/`, `scripts/images.mk` |
-| Gateway API CRDs | v1.6.0, experimental channel | the `Gateway`, `HTTPRoute` and `ReferenceGrant` kinds, used by both Envoy Gateway and Istio waypoints | `repos/infra/crds/base/gateway-api/` |
-| Envoy Gateway | v1.9.3 | turns Gateway API objects into the three Envoy proxies (public, internal, partner); its `SecurityPolicy` and `BackendTrafficPolicy` do JWT, API-key, CORS and rate limiting | `repos/platform/envoy-gateway/base/`, `repos/infra/crds/base/envoy-gateway/` |
-| Envoy proxy | distroless v1.39.5 | the data plane Envoy Gateway runs | `scripts/images.mk` |
+| Istio, ambient mode | 1.31.4 | ztunnel on every node for mTLS and identity; istiod; waypoints where a team opts in; the egress waypoint; and the three ingress Gateways (public, internal, partner), rendered by istiod from Gateway API objects. `RequestAuthentication` and `AuthorizationPolicy` do JWT and the fail-closed edge, `EnvoyFilter` the rate limits | `repos/platform/istio/base/`, `repos/platform/ingress/base/`, `repos/platform/edge-policies/base/`, `scripts/images.mk` |
+| Gateway API CRDs | v1.6.0, experimental channel | the `Gateway`, `HTTPRoute` and `ReferenceGrant` kinds, for the ingress Gateways and the waypoints alike | `repos/infra/crds/base/gateway-api/` |
+| edge-authz | built from `tools/edge-authz/`, Go 1.26, client-go v0.37.0 | the partner API-key check as an Envoy ext_authz service: reads the partner key Secrets, answers 200 with `x-partner-id` or 401 | `tools/edge-authz/`, `repos/platform/edge-authz/base/` |
+| oauth2-proxy | v7.15.6 | the Hubble UI login as an ext_authz service: runs the Dex authorization-code flow and holds the session cookie | `repos/platform/identity/base/oauth2-proxy.yaml`, `scripts/images.mk` |
 | cert-manager | v1.21.3 | issues the wildcard certificates for the three gateways from the local CA | `repos/infra/cert-manager/base/`, `repos/infra/issuers/envs/local/` |
 
 ## Delivery
@@ -52,9 +52,9 @@ When one of these is bumped, that file is the only place to edit, and
 | --- | --- | --- | --- |
 | Dex | v2.46.1 (chart 0.26.0) | the OIDC identity provider; six static users here, a company directory behind it for real | `repos/platform/identity/base/`, `repos/platform/identity/envs/local/` |
 | kubelogin | via Homebrew tap | the `kubectl` credential plugin that logs in through Dex and caches the token | `scripts/identity.mk` |
-| access-warden | built from `warden/`, Go 1.26, controller-runtime v0.25.2, client-go v0.37.0 | the one custom controller: turns an approved `AccessRequest` into a timed role binding | `warden/go.mod`, `warden/Dockerfile`, `repos/platform/access-warden/base/` |
-| dexproxy | same Go module | a tiny loopback proxy that stands in for the `/etc/hosts` line on laptops without root | `warden/cmd/dexproxy/`, `scripts/identity.mk` |
-| controller-gen | v0.23.0 | regenerates the `AccessRequest` CRD and deep-copy code from the Go types | `warden/Makefile` |
+| access-warden | built from `tools/warden/`, Go 1.26, controller-runtime v0.25.2, client-go v0.37.0 | the custom controller: turns an approved `AccessRequest` into a timed role binding | `tools/warden/go.mod`, `tools/warden/Dockerfile`, `repos/platform/access-warden/base/` |
+| dexproxy | same Go module | a tiny loopback proxy that stands in for the `/etc/hosts` line on laptops without root | `tools/warden/cmd/dexproxy/`, `scripts/identity.mk` |
+| controller-gen | v0.23.0 | regenerates the `AccessRequest` CRD and deep-copy code from the Go types | `tools/warden/Makefile` |
 
 ## Workloads and demo fixtures
 
@@ -68,9 +68,10 @@ When one of these is bumped, that file is the only place to edit, and
 ## Laptop tools
 
 Installed with `make brew-setup-all` and checked with `make tools-check`:
-k3d, kubectl, kustomize, flux, helm, cosign, sops, age, cilium-cli, hubble,
-jq, yq, kubeconform, kubelogin. Plus `htpasswd` and `openssl`, which macOS
-ships, and Go only if you rebuild the warden or the login proxy.
+k3d, kubectl, kustomize, flux, helm, istioctl, cosign, sops, age, cilium-cli,
+hubble, jq, yq, kubeconform, kubelogin. Plus `htpasswd` and `openssl`, which
+macOS ships, and Go only if you rebuild the warden, edge-authz or the login
+proxy.
 
 ## How the pieces depend on each other
 
@@ -81,9 +82,9 @@ ships, and Go only if you rebuild the warden or the login proxy.
                    │                                               │
                    │          ┌────────────────────────────────────┤
                    │          ▼                                    ▼
-                   │     infra: CRDs (Gateway API, Envoy Gateway,  platform: Istio ambient, Envoy Gateway,
-                   │            AccessRequest), RBAC, policies,    the three Gateways, Dex, the egress
-                   │            network baseline, cert-manager     waypoint, access-warden
+                   │     infra: CRDs (Gateway API,                 platform: Istio ambient and the three
+                   │            AccessRequest), RBAC, policies,    Gateways it renders, Dex, oauth2-proxy,
+                   │            network baseline, cert-manager     the egress waypoint, edge-authz, warden
                    │          │                                    │
                    │          └──── cert-manager issues ───▶ gateway certificates
                    │                                               │

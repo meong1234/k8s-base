@@ -60,7 +60,7 @@ Three rules that shape follows, and they are the rules for any team repo:
    that fits here.** 50m/64Mi is a defensible request for a service with a
    waypoint in front of it. 25m/32Mi is not — it is what is left after one k3d
    node has paid for Cilium, Istio (istiod, two DaemonSets, three waypoints),
-   three Envoy proxies, Dex, Flux's 17 controllers and four other teams. Putting
+   three ingress gateways, Dex, Flux's 17 controllers and four other teams. Putting
    the laptop's figure in `base/` would make every future cluster inherit a
    number that was never about the workload.
 3. **A per-environment value is a literal in `envs/<env>/`, never a

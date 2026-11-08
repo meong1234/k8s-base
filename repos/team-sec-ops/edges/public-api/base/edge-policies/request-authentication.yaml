@@ -1,0 +1,30 @@
+---
+# Attached to the public Gateway, so it lives in platform-ingress, applied by the
+# sec-ops Flux identity under the secops-edge-policies Role there. It validates a
+# token when one is present; authorization-require-jwt.yaml is what demands one.
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata:
+  name: public-edge-jwt
+  namespace: platform-ingress
+  labels:
+    platform.k8s-base/owner-team: team-sec-ops
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: public
+  jwtRules:
+    - issuer: https://dex.${CLUSTER_DOMAIN}:${PUBLIC_PORT}
+      audiences:
+        - public-api
+      # The issuer is the browser-facing string the token carries and resolves
+      # only on the laptop; istiod fetches the keys over the in-cluster path.
+      # The two fields are independent.
+      jwksUri: http://dex.platform-identity.svc.cluster.local:5556/keys
+      forwardOriginalToken: false
+      outputClaimToHeaders:
+        - header: x-user-email
+          claim: email
+        - header: x-user-groups
+          claim: groups

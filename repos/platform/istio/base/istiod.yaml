@@ -15,7 +15,7 @@ spec:
   chart:
     spec:
       chart: istiod
-      version: 1.31.3
+      version: 1.31.4
       sourceRef:
         kind: HelmRepository
         name: istio
@@ -35,6 +35,11 @@ spec:
     pilot:
       autoscaleEnabled: false
       replicaCount: 1
+      env:
+        # istiod fetches every RequestAuthentication jwksUri itself. Dex rotates
+        # its signing key every 6h; the default 20m refresh leaves tokens minted
+        # just after a rotation unverifiable until the next fetch.
+        PILOT_JWT_PUB_KEY_REFRESH_INTERVAL: 2m
       # The chart asks for 500m / 2Gi, which is a quarter of a laptop's
       # Docker allocation for a control plane serving six workloads.
       resources:
@@ -49,6 +54,57 @@ spec:
       # caller is what makes the egress log an audit trail.
       accessLogFormat: |
         [%START_TIME%] caller=%FILTER_STATE(io.istio.peer_principal:PLAIN)% sni=%REQUESTED_SERVER_NAME% method=%REQ(:METHOD)% path=%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% code=%RESPONSE_CODE% upstream=%UPSTREAM_HOST% route=%UPSTREAM_CLUSTER% flags=%RESPONSE_FLAGS% sent=%BYTES_SENT% received=%BYTES_RECEIVED% duration=%DURATION%
+
+      # The two edge logins Istio has no primitive for, both reached from the
+      # ingress gateways as HTTP ext_authz: edge-authz validates partner API keys,
+      # oauth2-proxy runs the Hubble UI browser login. failOpen false and a 503
+      # on error: an unreachable authorizer never becomes an allow.
+      extensionProviders:
+        - name: edge-authz
+          envoyExtAuthzHttp:
+            service: edge-authz.platform-ingress.svc.cluster.local
+            port: 8080
+            timeout: 2s
+            failOpen: false
+            statusOnError: "503"
+            includeRequestHeadersInCheck:
+              - x-api-key
+            # Copied from the 200 onto the upstream request, overwriting any
+            # value the client sent, so x-partner-id cannot be spoofed.
+            headersToUpstreamOnAllow:
+              - x-partner-id
+            headersToDownstreamOnDeny:
+              - content-type
+              - www-authenticate
+        - name: oauth2-proxy
+          envoyExtAuthzHttp:
+            service: oauth2-proxy.platform-identity.svc.cluster.local
+            port: 4180
+            timeout: 5s
+            failOpen: false
+            statusOnError: "503"
+            includeRequestHeadersInCheck:
+              - cookie
+              - x-forwarded-proto
+              - x-forwarded-host
+              - x-forwarded-for
+              - accept
+              - user-agent
+            headersToUpstreamOnAllow:
+              - x-auth-request-*
+            # The 302 to Dex carries location and the CSRF cookie; the callback
+            # leg carries the session cookie. Without set-cookie here the login
+            # never completes.
+            headersToDownstreamOnDeny:
+              - location
+              - set-cookie
+              - content-type
+              - www-authenticate
+              - cache-control
+              - pragma
+              - expires
+            headersToDownstreamOnAllow:
+              - set-cookie
 
     # istiod generates the waypoint and ingress-gateway Deployments itself, and
     # its template omits seccompProfile unless this value is set — the one thing

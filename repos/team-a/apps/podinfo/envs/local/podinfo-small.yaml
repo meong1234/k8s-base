@@ -5,7 +5,7 @@
 #                 release ahead of base so that an upgrade is exercised here
 #                 before the promotion PR moves base/ forward.
 #   resources     a single k3d node already carries Cilium, Istio (istiod, two
-#                 DaemonSets, three waypoints), three Envoy proxies, Dex, Flux's
+#                 DaemonSets, three waypoints), three ingress gateways, Dex, Flux's
 #                 17 controllers and four other teams. base/'s request is a
 #                 real-cluster figure; this one is what fits beside all of that.
 #

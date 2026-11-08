@@ -1,9 +1,12 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  - gatewayclass-istio-defaults.yaml
   - certificate-public-wildcard.yaml
   - certificate-internal-wildcard.yaml
   - certificate-partners-wildcard.yaml
   - gateway-public.yaml
   - gateway-internal.yaml
   - gateway-partner.yaml
+  - gateway-credentials.yaml
+  - rbac-secops-edge-policies.yaml

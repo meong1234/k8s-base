@@ -1,0 +1,20 @@
+---
+# istiod resolves RequestAuthentication.jwksUri itself and is not a mesh
+# workload, so its GET /keys arrives at Dex's ztunnel as plaintext. Under the
+# mesh-wide STRICT default that connection is dropped and every JWT on the
+# public edge is 401 "Jwks remote fetch is failed". Port 5556 is opened to
+# plaintext for Dex only; everything else about Dex stays STRICT.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: dex-jwks-plaintext
+  namespace: platform-identity
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dex
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    "5556":
+      mode: PERMISSIVE

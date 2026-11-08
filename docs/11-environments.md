@@ -95,8 +95,8 @@ and that is the point.
 
 **`base/` holds the figure a real cluster wants; `envs/<env>/` holds the
 one that fits here.** A 50m CPU request is a defensible default for a service.
-25m is what is left after one k3d node has paid for the mesh, three Envoy
-proxies, Dex, seventeen Flux controllers and four other teams. Putting the
+25m is what is left after one k3d node has paid for the mesh, three ingress
+gateways, Dex, seventeen Flux controllers and four other teams. Putting the
 laptop's number in `base/` would make every future cluster inherit a figure
 that was never about the workload.
 

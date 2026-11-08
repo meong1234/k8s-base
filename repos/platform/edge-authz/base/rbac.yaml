@@ -1,0 +1,13 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: edge-authz
+  namespace: platform-ingress
+  labels:
+    app.kubernetes.io/name: edge-authz
+    app.kubernetes.io/part-of: platform
+# The grant to read the partner key Secrets lives in partner-api and is stamped
+# by the fleet template for every namespace whose role is partner-edge. It
+# cannot ship from here: partner-api is created by the teams ResourceSet, which
+# waits for this stage.

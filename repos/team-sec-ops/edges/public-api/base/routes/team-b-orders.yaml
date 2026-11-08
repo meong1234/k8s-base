@@ -3,6 +3,7 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: team-b-orders
+  namespace: public-api
   labels:
     platform.k8s-base/owner-team: team-b
     platform.k8s-base/auth: jwt
@@ -37,6 +38,18 @@ spec:
                 value: DENY
               - name: Referrer-Policy
                 value: no-referrer
+        - type: CORS
+          cors:
+            allowOrigins:
+              - "https://*.${CLUSTER_DOMAIN}"
+            allowMethods: [GET, HEAD, OPTIONS]
+            allowHeaders: [authorization, content-type]
+            exposeHeaders:
+              - x-ratelimit-limit
+              - x-ratelimit-remaining
+              - x-ratelimit-reset
+            maxAge: 86400
+            allowCredentials: false
       backendRefs:
         - group: ""
           kind: Service

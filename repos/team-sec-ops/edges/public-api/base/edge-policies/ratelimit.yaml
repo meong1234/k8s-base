@@ -1,0 +1,65 @@
+---
+# 20 requests per minute per client address, across the whole public door.
+# Envoy's local rate limiter has no Istio API of its own, so this is the raw
+# filter config; the field names are Envoy's. Local means per gateway replica.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: public-edge-ratelimit
+  namespace: platform-ingress
+  labels:
+    platform.k8s-base/owner-team: team-sec-ops
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: public
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        # After jwt_authn and RBAC, before the router: a 401 or 403 spends no token.
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.local_ratelimit
+          typed_config:
+            "@type": type.googleapis.com/udpa.type.v1.TypedStruct
+            type_url: type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+            value:
+              stat_prefix: public_edge_local_rl
+              # Consulted only when no descriptor matches, which with a
+              # remote_address action is never; a filter with descriptors still
+              # needs one.
+              token_bucket:
+                max_tokens: 20
+                tokens_per_fill: 20
+                fill_interval: 60s
+              always_consume_default_token_bucket: false
+              filter_enabled:
+                runtime_key: public_edge_local_rl_enabled
+                default_value: { numerator: 100, denominator: HUNDRED }
+              filter_enforced:
+                runtime_key: public_edge_local_rl_enforced
+                default_value: { numerator: 100, denominator: HUNDRED }
+              enable_x_ratelimit_headers: DRAFT_VERSION_03
+              local_rate_limit_per_downstream_connection: false
+              rate_limits:
+                - actions:
+                    - remote_address: {}
+              descriptors:
+                # No value: one bucket per distinct client address. servicelb
+                # presents one address per node, so the floor is 20 per node.
+                - entries:
+                    - key: remote_address
+                  token_bucket:
+                    max_tokens: 20
+                    tokens_per_fill: 20
+                    fill_interval: 60s
+              max_dynamic_descriptors: 1000

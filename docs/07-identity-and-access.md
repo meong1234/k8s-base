@@ -242,7 +242,7 @@ involved.
 
 ## Where the detail lives
 
-- The warden: its state machine, why a component that can bind cluster-admin is safe here, and how to replace it with a commercial product: `warden/README.md`
+- The warden: its state machine, why a component that can bind cluster-admin is safe here, and how to replace it with a commercial product: `tools/warden/README.md`
 - The five access policies, one sentence each, and the integration results: `repos/infra/policies/base/README.md`
 - The identity demos, and logging in without root on a laptop: `demos/access/README.md`
 - The four just-in-time demos as copy-paste sessions: `demos/access/README-jit.md`

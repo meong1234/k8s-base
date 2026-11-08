@@ -1,0 +1,26 @@
+---
+# The Hubble UI sits behind a login: oauth2-proxy sees the whole request and
+# answers 302 (to Dex), 200 (session cookie valid) or handles /oauth2/* itself.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: internal-edge-hubble-oidc
+  namespace: platform-ingress
+  labels:
+    app.kubernetes.io/part-of: platform
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: internal
+  action: CUSTOM
+  provider:
+    name: oauth2-proxy
+  rules:
+    - to:
+        - operation:
+            # Istio matches hosts against :authority verbatim, port included,
+            # and the browser dials the port-forward port, not 443.
+            hosts:
+              - hubble.internal.${CLUSTER_DOMAIN}
+              - "hubble.internal.${CLUSTER_DOMAIN}:*"

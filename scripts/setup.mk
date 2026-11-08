@@ -1,10 +1,10 @@
 
 .PHONY: setup-help brew-common brew-update-tools brew-setup-all tools-check
 
-BREW_TOOLS := k3d kubectl kustomize helm cosign sops age cilium-cli hubble jq yq kubeconform
+BREW_TOOLS := k3d kubectl kustomize helm istioctl cosign sops age cilium-cli hubble jq yq kubeconform
 BREW_TAPS := fluxcd/tap/flux int128/kubelogin/kubelogin
 
-REQUIRED_CLIS := k3d kubectl kustomize flux helm cosign sops age-keygen cilium hubble jq yq kubeconform \
+REQUIRED_CLIS := k3d kubectl kustomize flux helm istioctl cosign sops age-keygen cilium hubble jq yq kubeconform \
                  kubectl-oidc_login htpasswd openssl
 
 setup-help:

@@ -61,7 +61,7 @@ spec:
       messageExpression: >-
         request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
         ' must carry the label platform.k8s-base/auth with one of none, jwt, api-key.' +
-        ' It is what selects the sec-ops SecurityPolicy for the route, so a route without it' +
+        ' It is what selects the edge policy class for the route, so a route without it' +
         ' would be served with no authentication class at all'
       reason: Forbidden
     - expression: >-
@@ -127,6 +127,18 @@ spec:
         ' but a backendRef points elsewhere: every backend namespace must be ' + variables.owner +
         ' or start with ' + variables.owner + '-, or be one of the platform namespaces opened for' +
         ' public backends (' + params.data['publicBackendNamespaces'] + ')'
+      reason: Forbidden
+    - expression: >-
+        request.kind.kind != 'HTTPRoute' || variables.role != 'public-edge' ||
+        !has(object.spec.rules) ||
+        object.spec.rules.all(r, !has(r.backendRefs) ||
+          (has(r.filters) && r.filters.exists(f, f.type == 'CORS')))
+      message: "a public route that reaches a backend carries the CORS filter"
+      messageExpression: >-
+        request.kind.kind + ' ' + request.namespace + '/' + object.metadata.name +
+        ' has a rule with backendRefs and no filter of type CORS. The edge policies attach to the' +
+        ' Gateway and cannot add CORS per route, so every public route carries the block itself;' +
+        ' copy it from an existing route in the same namespace'
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

@@ -1,0 +1,21 @@
+---
+# Every request on the partner door is checked by edge-authz before routing:
+# CUSTOM runs before DENY and ALLOW. Which partner a key belongs to is decided
+# inside edge-authz from the Host header, so one policy covers every partner.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: partner-edge-api-key
+  namespace: platform-ingress
+  labels:
+    app.kubernetes.io/part-of: platform
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: partner
+  action: CUSTOM
+  provider:
+    name: edge-authz
+  rules:
+    - {}

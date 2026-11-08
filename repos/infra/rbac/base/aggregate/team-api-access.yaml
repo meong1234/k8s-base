@@ -24,16 +24,6 @@ rules:
       - gateways
       - backendtlspolicies
     verbs: [get, list, watch, create, update, patch, delete]
-  - apiGroups: [gateway.envoyproxy.io]
-    resources:
-      - backendtrafficpolicies
-      - securitypolicies
-      - clienttrafficpolicies
-      - envoyextensionpolicies
-      - envoypatchpolicies
-      - httproutefilters
-      - backends
-    verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [security.istio.io]
     resources: [authorizationpolicies, peerauthentications, requestauthentications]
     verbs: [get, list, watch, create, update, patch, delete]

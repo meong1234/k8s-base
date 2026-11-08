@@ -33,7 +33,7 @@ exposure policies read a **second** ConfigMap because a VAP has exactly one
 | `waypointGatewayClass` | `istio-waypoint` | `team-no-direct-exposure` |
 | `forbiddenServiceTypes` | `LoadBalancer,NodePort` | `team-no-direct-exposure` |
 | `publicBackendNamespaces` | `platform-identity` | `public-route-owner` |
-| `reservedNamespacePrefixes` | `platform-,flux-,kube-,istio-,cert-manager,envoy-gateway-,default` | `public-route-owner` |
+| `reservedNamespacePrefixes` | `platform-,flux-,kube-,istio-,cert-manager,default` | `public-route-owner` |
 
 Both exposure bindings use `parameterNotFoundAction: Deny`.
 
@@ -445,7 +445,7 @@ namespaced kinds, so `variables.expected` resolves and no fallback to
 | `public-route-owner` | `owner-team: team-a` route with a `backendRefs` into `team-b-apps` | **denied** - `HTTPRoute public-api/team-a-steals-team-b is labelled platform.k8s-base/owner-team=team-a but a backendRef points elsewhere: every backend namespace must be team-a or start with team-a-, or be one of the platform namespaces opened for public backends (platform-identity)` |
 | `public-route-owner` | `owner-team: platform` route with a `backendRefs` into `flux-system` | **denied** - same message with `platform` / `platform-`; `reservedNamespacePrefixes` is what stops the `platform-` prefix matching every platform namespace |
 | `public-route-owner` | `owner-team: team-a`, `auth: none`, `api.local-dev.test` + `PathPrefix /podinfo` into `team-a-apps` | **allowed** |
-| `public-route-owner` | the same route with no `platform.k8s-base/auth` label | **denied** - `HTTPRoute public-api/team-a-forgot-auth must carry the label platform.k8s-base/auth with one of none, jwt, api-key. It is what selects the sec-ops SecurityPolicy for the route, so a route without it would be served with no authentication class at all` |
+| `public-route-owner` | the same route with no `platform.k8s-base/auth` label | **denied** - `HTTPRoute public-api/team-a-forgot-auth must carry the label platform.k8s-base/auth with one of none, jwt, api-key. It is what selects the edge policy class for the route, so a route without it would be served with no authentication class at all` |
 | `public-route-owner` | the same route with `auth: api-key`, in `public-api` | **denied** - `... is labelled platform.k8s-base/auth=api-key in a namespace whose platform.k8s-base/role is public-edge. The public edge serves none and jwt; the partner edge serves api-key only` |
 | `public-route-owner` | `auth: none` route for `partner-a.partners.local-dev.test` in **`public-api`** (`demos/partner/partner-route-on-public.yaml`) | **denied** - `... claims a hostname its edge does not serve. A route in a public-edge namespace serves api.local-dev.test ... A route in a partner-edge namespace serves <partner>.partners.local-dev.test` |
 | `public-route-owner` | `auth: jwt` route in **`partner-api`**, correct in every other respect (`demos/partner/jwt-route-on-partner.yaml`) | **denied** - `... is labelled platform.k8s-base/auth=jwt in a namespace whose platform.k8s-base/role is partner-edge. The public edge serves none and jwt; the partner edge serves api-key only` |

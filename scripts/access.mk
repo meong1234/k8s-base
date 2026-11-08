@@ -1,7 +1,7 @@
 .PHONY: access-help access-request access-approve access-deny access-list access-revoke \
         warden-logs warden-build warden-push warden-image
 
-WARDEN_DIR := warden
+WARDEN_DIR := tools/warden
 WARDEN_IMAGE := docker.io/k8s-base/access-warden:dev
 WARDEN_LOCAL_IMAGE = localhost:$(REG_HOST_PORT)/k8s-base/access-warden:dev
 WARDEN_NS := platform-access

@@ -55,7 +55,6 @@ rules:
   - apiGroups:
       - gateway.networking.k8s.io
       - gateway.networking.x-k8s.io
-      - gateway.envoyproxy.io
     resources: ["*"]
     verbs: [get, list, watch]
   - apiGroups: [cilium.io]

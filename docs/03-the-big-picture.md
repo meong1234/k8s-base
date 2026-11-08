@@ -75,9 +75,9 @@ writer.
  ├───────────────────────────────────────────────────────────────────────────┤
  │  PLATFORM SERVICES                                                        │
  │  istio-system          ztunnel on every node, istiod, mesh-wide STRICT    │
- │  envoy-gateway-system  three Envoy proxies: public, internal, partner     │
- │  platform-ingress      the three Gateways and their certificates          │
- │  platform-identity     Dex                                                │
+ │  platform-ingress      the three Gateways and the proxies istiod renders  │
+ │                        from them, their certificates, edge-authz          │
+ │  platform-identity     Dex, oauth2-proxy for the Hubble UI login          │
  │  platform-egress       the egress waypoint and the partner credential     │
  │  platform-access       the access warden                                  │
  │  cert-manager          the local CA issuer                                │
@@ -97,7 +97,7 @@ reach these namespaces.
 
 **Platform services** come from the `platform` repository. They are the
 things every team uses and no team configures: the mesh that encrypts
-pod-to-pod traffic, the proxies that terminate public TLS, the identity
+pod-to-pod traffic, the gateways that terminate public TLS, the identity
 provider, the single egress proxy, the warden that grants timed access.
 
 **Tenants** are stamped by the ResourceSet from one input block each. A
@@ -242,26 +242,28 @@ objects owned by four different parties, and each is required.
  1  Gateway public (platform-ingress)             owner: platform
          │  TLS terminated with the public wildcard certificate
          │  listener admits routes only from namespaces labelled public-edge
+         │  the proxy is rendered by istiod: the same control plane as the mesh
          │
- 2  HTTPRoute team-b-orders (public-api)          owner: team-sec-ops
-         │  host api.<zone>, PathPrefix /orders, rewrite to /
+ 2  the edge policies on the Gateway              owner: team-sec-ops, applied into platform-ingress
+         │  RequestAuthentication public-edge-jwt: a token present? verify it against Dex, aud public-api
+         │     unverifiable → 401; verified but for the wrong audience (a kubectl login) → 403
+         │  AuthorizationPolicy public-edge-require-jwt: no verified token on api.<zone> → 403
+         │     unless the prefix is listed in notPaths (the open ones: /podinfo)
+         │  EnvoyFilter public-edge-ratelimit: 20 req/min per client address
+         │
+ 3  HTTPRoute team-b-orders (public-api)          owner: team-sec-ops
+         │  host api.<zone>, PathPrefix /orders, rewrite to /, CORS filter
          │  label owner-team: team-b    → backend must be in team-b's namespaces
-         │  label auth: jwt             → the jwt SecurityPolicy applies
+         │  label auth: jwt             → /orders is not in notPaths; the two are one review
          │  /orders is team-b's prefix  → ConfigMap api-paths-team-b says so
-         │
- 3  SecurityPolicy public-edge-jwt                owner: team-sec-ops
-         │  no token           → 401
-         │  token for the wrong audience (e.g. a kubectl login) → 403
-         │  valid token for aud public-api → continue, add x-user-email
-         │  BackendTrafficPolicy: 20 req/min per client IP
          │
  4  ReferenceGrant allow-public-api (team-b-apps) owner: team-b
          │  "routes from public-api may target Service podinfo"
-         │  ✗ absent → ResolvedRefs=False, the edge serves an error
+         │  ✗ absent → ResolvedRefs=False, the edge serves a 500
          │
  5  Service podinfo (team-b-apps)
-         │  Envoy → pod over HBONE on 15008, mTLS, identity on both ends
-         │  the baseline NetworkPolicy allows envoy-gateway-system on 15008
+         │  gateway → pod over HBONE on 15008, mTLS, the gateway's own identity
+         │  the baseline NetworkPolicy allows platform-ingress on 15008
          ▼
  6  the podinfo pod, receiving x-user-email and never the token
 ```
@@ -292,11 +294,11 @@ knowing the chain tells you where to look when something is not Ready.
    │     └─▶ infra-config-ks       path ./clusters/local/issuers: the ClusterIssuer
    │                               (needs cert-manager's CRD first)
    │
-   ├─▶ platform-ks    (platform)   path ./clusters/local: Istio ambient, Envoy Gateway,
-   │     │                         the three Gateways and certificates, Dex, the egress
-   │     │                         waypoint, the warden
+   ├─▶ platform-ks    (platform)   path ./clusters/local: Istio ambient, the three
+   │     │                         Gateways and certificates, Dex, oauth2-proxy, the
+   │     │                         egress waypoint, edge-authz, the warden
    │     └─▶ platform-config-ks    path ./clusters/local/config: mesh-wide STRICT mTLS,
-   │                               the Envoy proxy definitions (custom resources whose
+   │                               the edge policies (Istio custom resources whose
    │                               CRDs the stage above installs)
    │
    └─▶ ResourceSet teams           waits for platform-config-ks, then stamps every team

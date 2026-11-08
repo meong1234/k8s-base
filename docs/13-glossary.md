@@ -205,8 +205,22 @@ target my Service. Without it a route does not resolve. The team's veto over
 its own exposure.
 
 **Auth class.** The `platform.k8s-base/auth` label on a route: `none`, `jwt`
-or `api-key`. Selects which `SecurityPolicy` covers the route. Required by
-admission.
+or `api-key`. Declares how the edge authenticates the route; the sec-ops
+reviewer checks it against the edge policy (`none` means the prefix is in the
+public DENY policy's `notPaths`). Required by admission.
+
+**RequestAuthentication.** Istio's JWT validator, attached to a Gateway from
+its own namespace. Verifies a token when one is present and writes claims to
+headers; it is an `AuthorizationPolicy` that demands one.
+
+**EnvoyFilter.** Istio's escape hatch: a patch of raw Envoy configuration
+onto a proxy. Used here only for rate limiting, which Istio has no API for,
+and for stripping identity headers before the JWT filter writes them.
+
+**ext_authz.** Envoy's external authorization: the proxy asks an HTTP service
+yes or no before routing. Wired through an `AuthorizationPolicy` of action
+`CUSTOM`; here it is how partner API keys are checked (`edge-authz`) and how
+the Hubble UI login works (oauth2-proxy).
 
 **Path prefix.** The first URL segment a team owns on the public host,
 allocated in the fleet input under `apiPaths` and enforced by admission.

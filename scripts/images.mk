@@ -21,7 +21,7 @@ HUBBLE_UI_BACKEND_IMAGE := quay.io/cilium/hubble-ui-backend:$(HUBBLE_UI_VERSION)
 # Istio 1.31 publishes images to Docker Hub only (gcr.io/istio-release and
 # registry.istio.io are retired); the ambient profile sets global.variant to
 # distroless, so the rendered tags carry the suffix.
-ISTIO_VERSION           := 1.31.3
+ISTIO_VERSION           := 1.31.4
 ISTIO_PILOT_IMAGE       := docker.io/istio/pilot:$(ISTIO_VERSION)-distroless
 ISTIO_CNI_IMAGE         := docker.io/istio/install-cni:$(ISTIO_VERSION)-distroless
 ISTIO_ZTUNNEL_IMAGE     := docker.io/istio/ztunnel:$(ISTIO_VERSION)-distroless
@@ -32,13 +32,11 @@ BUSYBOX_IMAGE           := docker.io/library/busybox:1.37
 # 8.11.1 runs as uid 100; repos/team-b/apps/orders/base/caller.yaml pins runAsUser to match.
 CURL_IMAGE              := docker.io/curlimages/curl:8.11.1
 
-ENVOY_GATEWAY_VERSION   := v1.9.3
-ENVOY_GATEWAY_IMAGE     := docker.io/envoyproxy/gateway:$(ENVOY_GATEWAY_VERSION)
-# DefaultEnvoyProxyImage compiled into Envoy Gateway v1.9.3; re-check on a bump.
-ENVOY_PROXY_IMAGE       := docker.io/envoyproxy/envoy:distroless-v1.39.5
-
 DEX_VERSION             := v2.46.1
 DEX_IMAGE               := ghcr.io/dexidp/dex:$(DEX_VERSION)
+
+# Hubble UI login on the internal Gateway: an ext_authz provider for Istio.
+OAUTH2_PROXY_IMAGE      := quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
 
 CERT_MANAGER_VERSION          := v1.21.3
 CERT_MANAGER_IMAGE            := quay.io/jetstack/cert-manager-controller:$(CERT_MANAGER_VERSION)
@@ -62,8 +60,7 @@ PROJECT_IMAGES := $(FLUX_SOURCE_IMAGE) \
                   $(PODINFO_IMAGE) \
                   $(BUSYBOX_IMAGE) \
                   $(CURL_IMAGE) \
-                  $(ENVOY_GATEWAY_IMAGE) \
-                  $(ENVOY_PROXY_IMAGE) \
+                  $(OAUTH2_PROXY_IMAGE) \
                   $(CERT_MANAGER_IMAGE) \
                   $(CERT_MANAGER_WEBHOOK_IMAGE) \
                   $(CERT_MANAGER_CAINJECTOR_IMAGE) \
@@ -75,7 +72,7 @@ images-help:
 	@echo "  images-pull-all     - Pull all required Docker images"
 	@echo "  images-push-all     - Push all required images to the local registry"
 	@echo "  images-manage-all   - Pull, push and build all required Docker images"
-	@echo "  images-build-local  - Build the images this repo owns (access-warden)"
+	@echo "  images-build-local  - Build the images this repo owns (access-warden, edge-authz)"
 	@echo "  images-list         - List the registry catalog and each repo's tags"
 	@echo ""
 
@@ -111,7 +108,7 @@ images-push-all:
 	@echo "==> All project images pushed to the local registry"
 	@echo "==> Nodes will pull them via the containerd mirrors (see k3d/cluster.yaml)"
 
-images-build-local: warden-image
+images-build-local: warden-image edge-authz-image
 	@echo "==> Locally built images are in the registry"
 
 images-manage-all: images-pull-all images-push-all images-build-local

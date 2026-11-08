@@ -150,7 +150,10 @@ Note the port: 15008, the mesh tunnel, never 9898.
 
 *What enforces it.* Istio ambient with a mesh-wide `PeerAuthentication` in
 `STRICT` mode. ztunnel wraps every connection; a plaintext connection to the
-application port is refused.
+application port is refused. The one port-level exception is Dex's 5556,
+opened to plaintext so istiod can fetch the JWKS the public edge verifies
+tokens against; the ingress gateways themselves are not captured and speak
+HBONE to every backend with their own identity.
 
 *How you see it.* `make demo-mtls` runs a Job in `team-b-batch` that calls
 `team-b-apps` six times. Every packet Cilium sees is on 15008, and ztunnel
@@ -219,22 +222,29 @@ the sec-ops repo signed with team-a's key and shows it refused.
 
 ### A secured public path needs a Dex token for the public API; an open path needs none
 
-*What enforces it.* One `SecurityPolicy` per auth class, selected by the
-route's `auth` label, which admission requires. The JWT policy pins the
-audience to `public-api`.
+*What enforces it.* A `RequestAuthentication` on the public Gateway that
+pins the audience to `public-api`, and a fail-closed `AuthorizationPolicy`
+that denies any request on the public host without a verified token unless
+its prefix is listed as open. Both are sec-ops files in the Gateway's
+namespace; the route's `auth` label, which admission requires, is reviewed
+against that list.
 
 *How you see it.* `make demo-public-auth` curls a `jwt` route with no token
-(401), with garbage (401), with a token for the `kubernetes` client (403,
-verified signature but wrong audience), and with a token for `public-api`
-(200, and the backend received `x-user-email`). The `none` route returns
-200 with no token throughout.
+(403, `RBAC: access denied`), with garbage (401), with a token for the
+`kubernetes` client (403, verified signature but wrong audience, said so in
+`www-authenticate`), and with a token for `public-api` (200, and the backend
+received `x-user-email`). The `none` route returns 200 with no token
+throughout.
 
 ### A partner has its own gateway, port, certificate, keys and rate limit
 
-*What enforces it.* A second Envoy proxy with its own Gateway on 9443
-admitting routes only from `partner-edge`. Admission requires exactly one
-hostname in the partner subzone and `auth: api-key`, and refuses the other
-classes there and `api-key` on the public edge.
+*What enforces it.* A second Gateway on 9443, rendered as its own proxy,
+admitting routes only from `partner-edge`; an `AuthorizationPolicy` that
+sends every request on it to `edge-authz`, which checks the key against the
+partner's Secret and names the client id; and one `EnvoyFilter` per partner
+with its rate limit. Admission requires exactly one hostname in the partner
+subzone and `auth: api-key`, and refuses the other classes there and
+`api-key` on the public edge.
 
 *How you see it.* `make demo-partner-api` calls two partners with and
 without their keys, shows the backend receiving `x-partner-id` and never the
@@ -268,8 +278,10 @@ the object body.
 
 ### Internal UIs are reached by login, not by port-forward
 
-*What enforces it.* The internal Gateway fronts the Hubble UI with an OIDC
-`SecurityPolicy`. Nobody holds `pods/portforward` standing.
+*What enforces it.* The internal Gateway hands every request for the Hubble
+host to oauth2-proxy before routing it, through an `AuthorizationPolicy` of
+action `CUSTOM`; oauth2-proxy runs the Dex login and holds the session.
+Nobody holds `pods/portforward` standing.
 
 *How you see it.* `make demo-internal-oidc` requests the UI, gets a 302 to
 Dex, logs in, gets 200.

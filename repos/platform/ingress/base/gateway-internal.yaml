@@ -7,13 +7,13 @@ metadata:
   labels:
     app.kubernetes.io/part-of: platform
     platform.k8s-base/gateway-scope: internal
+  annotations:
+    # Only the public and partner doors need a klipper-lb address. istiod reads
+    # this on the Gateway and renders a ClusterIP Service; the demo reaches it
+    # with a port-forward on 8444.
+    networking.istio.io/service-type: ClusterIP
 spec:
-  gatewayClassName: eg
-  infrastructure:
-    parametersRef:
-      group: gateway.envoyproxy.io
-      kind: EnvoyProxy
-      name: internal
+  gatewayClassName: istio
   listeners:
     - name: internal-https
       protocol: HTTPS

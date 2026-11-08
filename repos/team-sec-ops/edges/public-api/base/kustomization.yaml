@@ -1,6 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: public-api
+# No `namespace:` transformer here: the routes live in public-api but the edge
+# policies attach to the public Gateway and must sit in platform-ingress, and
+# kustomize would rewrite that. Every object names its namespace itself.
 labels:
   - includeSelectors: false
     pairs:
@@ -11,6 +13,6 @@ resources:
   - routes/team-a-catalog.yaml
   - routes/team-b-orders.yaml
   - routes/platform-dex.yaml
-  - policies/ratelimit.yaml
-  - policies/security-none.yaml
-  - policies/security-jwt.yaml
+  - edge-policies/request-authentication.yaml
+  - edge-policies/authorization-require-jwt.yaml
+  - edge-policies/ratelimit.yaml
